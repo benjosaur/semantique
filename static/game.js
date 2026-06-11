@@ -14,29 +14,14 @@
   const INK_SOFT = "#5a564c";
 
   // ---- HUD ----
-  // The context window: "N/budget" counter + one token slot per hop, so the
-  // player literally watches their context fill up word by word.
+  // The context window: a plain "N/budget" counter that ticks up each hop.
   element.querySelector(".sq-target-word").textContent = level.target;
   const countEl = element.querySelector(".sq-context-count");
   const usedEl = element.querySelector(".sq-ctx-used");
   element.querySelector(".sq-ctx-cap").textContent = level.budget;
-  const slotsEl = element.querySelector(".sq-slots");
-  for (let i = 0; i < level.budget; i++) {
-    const slot = document.createElement("span");
-    slot.className = "sq-slot";
-    slot.style.setProperty("--tilt", `${(Math.random() * 8 - 4).toFixed(1)}deg`);
-    slotsEl.appendChild(slot);
-  }
-  const slotWord = (w) =>
-    w === "<bos>" || w === "<eos>" ? "·" : w.length > 5 ? w.slice(0, 4) + "…" : w;
   const hud = {
-    update(used, word) {
+    update(used) {
       usedEl.textContent = used;
-      const slot = slotsEl.children[used - 1];
-      if (!slot) return;
-      slot.classList.add("sq-filled");
-      slot.textContent = slotWord(word);
-      gsap.from(slot, { scale: 0, duration: 0.3, ease: "back.out(2.5)" });
     },
     warnFull() {
       countEl.classList.add("sq-full");
@@ -45,20 +30,10 @@
     overflow() {
       usedEl.textContent = level.budget + 1;
       countEl.classList.add("sq-full");
-      const burst = document.createElement("span");
-      burst.className = "sq-slot sq-burst";
-      burst.textContent = "✕";
-      slotsEl.appendChild(burst);
-      gsap.to(burst, { y: 10, rotation: 35, opacity: 0, duration: 0.8, ease: "power1.in" });
     },
     reset() {
       usedEl.textContent = 0;
       countEl.classList.remove("sq-full");
-      slotsEl.querySelector(".sq-burst")?.remove();
-      for (const slot of slotsEl.children) {
-        slot.classList.remove("sq-filled");
-        slot.textContent = "";
-      }
     },
   };
 
@@ -618,10 +593,10 @@
     const word = t.word;
 
     // the hop that EXCEEDS the window kills — even onto <eos>. The fatal
-    // word never makes it into the context: no chip, no slot.
+    // word never makes it into the context: no chip.
     if (used > level.budget) return die();
 
-    hud.update(used, word);
+    hud.update(used);
     setPose("idle");
     if (word !== "<bos>" && word !== "<eos>") {
       words.push(word);

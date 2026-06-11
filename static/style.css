@@ -72,7 +72,7 @@
   transform: rotate(-1.5deg);
 }
 
-/* context window: a labelled counter + ten little token slots that fill up */
+/* context window: a labelled "N/budget" counter */
 .sq-context {
   display: flex;
   align-items: center;
@@ -92,36 +92,6 @@
 }
 .sq-context-count.sq-full {
   color: var(--accent);
-}
-.sq-slots {
-  display: flex;
-  gap: 5px;
-}
-.sq-slot {
-  min-width: 30px;
-  height: 26px;
-  padding: 0 4px;
-  display: grid;
-  place-items: center;
-  font-size: 13px;
-  line-height: 1;
-  color: var(--ink);
-  border: 2px dashed var(--ink-soft);
-  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
-  transform: rotate(var(--tilt, 0deg));
-  background: rgba(255, 255, 255, 0.35);
-}
-.sq-slot.sq-filled {
-  border-style: solid;
-  border-color: var(--ink);
-  background: rgba(255, 255, 255, 0.8);
-}
-.sq-slot.sq-burst {
-  border-color: var(--accent);
-  color: var(--accent);
-  background:
-    linear-gradient(45deg, transparent 43%, var(--accent) 43% 57%, transparent 57%),
-    linear-gradient(-45deg, transparent 43%, var(--accent) 43% 57%, transparent 57%);
 }
 
 /* ---- prompt strip ---- */
