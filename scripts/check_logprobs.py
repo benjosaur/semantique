@@ -6,7 +6,10 @@ Usage: python scripts/check_logprobs.py [model_id]
 import os
 import sys
 
+from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
+
+load_dotenv()
 
 model = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("JUDGE_MODEL", "Qwen/Qwen3-4B-Instruct-2507")
 client = InferenceClient()
