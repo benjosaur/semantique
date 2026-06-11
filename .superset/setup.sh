@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Superset worktree setup: create a local venv and install deps.
-# Run by Superset on new-worktree init (fallback: `bash .superset/setup.sh`).
+# Superset workspace setup (wired up via .superset/config.json): create a
+# local venv and install deps. Superset runs setup commands with cwd = the
+# new workspace/worktree directory — do NOT cd relative to this script, since
+# Superset's no-config fallback invokes the MAIN repo's copy of setup.sh
+# against the worktree cwd.
 set -euo pipefail
-cd "$(dirname "$0")/.."
 
 uv venv .venv
 VIRTUAL_ENV="$PWD/.venv" uv pip install -r requirements.txt -r requirements-dev.txt
