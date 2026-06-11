@@ -338,12 +338,163 @@
     state = "idle";
   }
 
-  function submit(overflow) {
+  // ---- judging + verdict ----
+
+  const overlayEl = element.querySelector(".sq-overlay");
+  const cardEl = element.querySelector(".sq-card");
+  const sentenceEl = element.querySelector(".sq-card-sentence");
+  const barsEl = element.querySelector(".sq-bars");
+  const stampEl = element.querySelector(".sq-stamp");
+  const retryBtn = element.querySelector(".sq-retry");
+  const againBtn = element.querySelector(".sq-again");
+
+  async function submit(overflow) {
     state = "judging";
     setPose("think");
-    hintEl.textContent = overflow ? "context overflow! judging anyway…" : "judging…";
-    // verdict flow lands in the next commit
+    hintEl.textContent = overflow
+      ? "context window overflowed! the judge reads it anyway…"
+      : "the judge is reading…";
+    gsap.to(hintEl, { opacity: 1, duration: 0.3 });
+    const bob = gsap.to(charMesh.position, {
+      y: CHAR_BASE_Y + 0.12, duration: 0.55, repeat: -1, yoyo: true, ease: "sine.inOut",
+    });
+    const slowTimer = setTimeout(() => {
+      hintEl.textContent = "the tiny model is stretching its parameters…";
+    }, 4000);
+
+    let res;
+    try {
+      res = await server.judge({ words, target: level.target, labels: level.labels });
+    } catch (err) {
+      res = { ok: false, error: String(err) };
+    }
+    clearTimeout(slowTimer);
+    bob.kill();
+    gsap.to(charMesh.position, { y: CHAR_BASE_Y, duration: 0.2 });
+
+    if (!res || !res.ok) return judgeFailed(overflow, res && res.error);
+    showVerdict(res, overflow);
   }
+
+  function openCard() {
+    overlayEl.classList.remove("sq-hidden");
+    gsap.fromTo(overlayEl, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.25 });
+    gsap.fromTo(
+      cardEl,
+      { y: 36, rotation: -4, scale: 0.92, autoAlpha: 0 },
+      { y: 0, rotation: -1, scale: 1, autoAlpha: 1, duration: 0.4, ease: "back.out(1.6)" }
+    );
+  }
+
+  function judgeFailed(overflow, error) {
+    console.warn("judge failed:", error);
+    sentenceEl.textContent = "the judge dozed off…";
+    barsEl.innerHTML = "";
+    stampEl.style.opacity = 0;
+    retryBtn.classList.remove("sq-hidden");
+    againBtn.classList.add("sq-hidden");
+    retryBtn.onclick = () => {
+      overlayEl.classList.add("sq-hidden");
+      submit(overflow);
+    };
+    openCard();
+  }
+
+  function showVerdict(res, overflow) {
+    state = "verdict";
+    setPose(res.verdict === "win" ? "hop" : "idle");
+    hintEl.textContent = "";
+
+    sentenceEl.innerHTML = "";
+    const quote = document.createElement("div");
+    quote.textContent = `“${res.sentence}”`;
+    sentenceEl.appendChild(quote);
+    if (overflow) {
+      const note = document.createElement("div");
+      note.textContent = "— context window overflowed —";
+      note.style.cssText = "font-family:'Patrick Hand',cursive;font-size:17px;color:#b3402e;";
+      sentenceEl.appendChild(note);
+    }
+
+    // probability bars, sorted by prob so the verdict reads top-down
+    barsEl.innerHTML = "";
+    const entries = Object.entries(res.probs).sort((a, b) => b[1] - a[1]);
+    const fills = [];
+    for (const [label, p] of entries) {
+      const row = document.createElement("div");
+      row.className = "sq-bar-row" + (label === level.target ? " sq-bar-target" : "");
+      const name = document.createElement("span");
+      name.className = "sq-bar-label";
+      name.textContent = label;
+      const track = document.createElement("div");
+      track.className = "sq-bar-track";
+      const fill = document.createElement("div");
+      fill.className = "sq-bar-fill";
+      track.appendChild(fill);
+      const pct = document.createElement("span");
+      pct.className = "sq-bar-pct";
+      pct.textContent = "0%";
+      row.append(name, track, pct);
+      barsEl.appendChild(row);
+      fills.push({ fill, pct, p });
+    }
+
+    retryBtn.classList.add("sq-hidden");
+    againBtn.classList.remove("sq-hidden");
+    stampEl.textContent = res.verdict === "win" ? `${res.winner}!` : `${res.winner}.`;
+    stampEl.classList.toggle("sq-win", res.verdict === "win");
+    stampEl.style.opacity = 0;
+
+    openCard();
+
+    const tl = gsap.timeline({ delay: 0.35 });
+    fills.forEach(({ fill, pct, p }, i) => {
+      const counter = { v: 0 };
+      tl.to(fill, { width: `${(p * 100).toFixed(1)}%`, duration: 0.7, ease: "power2.out" }, 0.15 * i);
+      tl.to(counter, {
+        v: p * 100, duration: 0.7, ease: "power2.out",
+        onUpdate: () => (pct.textContent = `${counter.v.toFixed(0)}%`),
+      }, 0.15 * i);
+    });
+    tl.fromTo(
+      stampEl,
+      { opacity: 0, scale: 3, rotation: 24 },
+      { opacity: 1, scale: 1, rotation: 8, duration: 0.3, ease: "power3.in" },
+      ">-0.1"
+    ).to(cardEl, { x: "+=5", yoyo: true, repeat: 3, duration: 0.04 }, ">"); // thump
+  }
+
+  // ---- reset ----
+
+  function reset() {
+    gsap.to(overlayEl, {
+      autoAlpha: 0, duration: 0.25,
+      onComplete: () => {
+        overlayEl.classList.add("sq-hidden");
+        overlayEl.style.opacity = "";
+      },
+    });
+
+    words = [];
+    used = 0;
+    pos = [...level.start];
+    [...chipsEl.querySelectorAll(".sq-chip:not(.sq-chip-bos)")].forEach((c) => c.remove());
+    pips.forEach((p) => p.classList.remove("sq-used"));
+    hintEl.textContent = "arrow keys / WASD to hop";
+    gsap.to(hintEl, { opacity: 1, duration: 0.4 });
+
+    // poof back to <bos>
+    const home = charPosFor(level.start[0], level.start[1]);
+    gsap.timeline({ onComplete: () => (state = "idle") })
+      .to(charMesh.scale, { x: 0, y: 0, duration: 0.18, ease: "power2.in" })
+      .add(() => {
+        charMesh.position.set(home.x, CHAR_BASE_Y, home.z);
+        setPose("idle");
+      })
+      .to(charMesh.scale, { x: 1, y: 1, duration: 0.28, ease: "back.out(2.5)" });
+  }
+
+  againBtn.addEventListener("click", reset);
 
   // ---- input ----
 
