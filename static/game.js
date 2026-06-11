@@ -150,6 +150,119 @@
   }
   const tile = (r, c) => tiles[r * COLS + c];
 
+  // ---- character: a line-doodle on a billboarded plane ----
+
+  function wobblyCircle(ctx, cx, cy, r, jitter) {
+    ctx.beginPath();
+    for (let i = 0; i <= 26; i++) {
+      const a = (i / 26) * Math.PI * 2;
+      const rr = r + rand(-jitter, jitter);
+      const x = cx + rr * Math.cos(a);
+      const y = cy + rr * Math.sin(a);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+  }
+
+  function wobblyLine(ctx, x0, y0, x1, y1, jitter) {
+    ctx.beginPath();
+    ctx.moveTo(x0 + rand(-jitter, jitter), y0 + rand(-jitter, jitter));
+    const mx = (x0 + x1) / 2 + rand(-jitter * 2, jitter * 2);
+    const my = (y0 + y1) / 2 + rand(-jitter * 2, jitter * 2);
+    ctx.quadraticCurveTo(mx, my, x1 + rand(-jitter, jitter), y1 + rand(-jitter, jitter));
+  }
+
+  const CHAR_PX_W = 256;
+  const CHAR_PX_H = 320;
+
+  function drawCharCanvas(ctx, pose) {
+    const J = 2.5;
+    ctx.clearRect(0, 0, CHAR_PX_W, CHAR_PX_H);
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.strokeStyle = INK;
+    ctx.fillStyle = INK;
+    ctx.lineWidth = 7;
+
+    // head
+    wobblyCircle(ctx, 128, 96, 50, 2);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,253,247,0.9)";
+    ctx.fill();
+    ctx.fillStyle = INK;
+
+    // face
+    const blink = pose === "idle" && Math.random() < 0.18;
+    if (blink) {
+      wobblyLine(ctx, 102, 92, 118, 92, 1); ctx.stroke();
+      wobblyLine(ctx, 138, 92, 154, 92, 1); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.arc(110, 90, 5.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(146, 90, 5.5, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.beginPath();
+    if (pose === "think") {
+      ctx.arc(128, 116, 9, 0, Math.PI * 2); // little "o" mouth
+      ctx.stroke();
+    } else {
+      ctx.arc(128, 104, 22, Math.PI * 0.18, Math.PI * 0.82); // smile
+      ctx.stroke();
+    }
+
+    // body
+    wobblyLine(ctx, 128, 146, 128, 236, J); ctx.stroke();
+
+    // arms + legs by pose
+    if (pose === "hop") {
+      wobblyLine(ctx, 128, 172, 76, 122, J); ctx.stroke();
+      wobblyLine(ctx, 128, 172, 180, 122, J); ctx.stroke();
+      wobblyLine(ctx, 128, 236, 96, 270, J); ctx.stroke();
+      wobblyLine(ctx, 128, 236, 162, 268, J); ctx.stroke();
+    } else if (pose === "think") {
+      wobblyLine(ctx, 128, 176, 88, 210, J); ctx.stroke();
+      wobblyLine(ctx, 128, 176, 158, 142, J); ctx.stroke(); // hand to chin
+      wobblyLine(ctx, 128, 236, 104, 302, J); ctx.stroke();
+      wobblyLine(ctx, 128, 236, 152, 302, J); ctx.stroke();
+      ctx.font = '400 56px "Patrick Hand"';
+      ctx.textAlign = "center";
+      ctx.fillText("?", 196 + rand(-2, 2), 56 + rand(-2, 2));
+    } else {
+      wobblyLine(ctx, 128, 176, 90, 216, J); ctx.stroke();
+      wobblyLine(ctx, 128, 176, 166, 216, J); ctx.stroke();
+      wobblyLine(ctx, 128, 236, 104, 302, J); ctx.stroke();
+      wobblyLine(ctx, 128, 236, 152, 302, J); ctx.stroke();
+    }
+  }
+
+  const charCanvas = document.createElement("canvas");
+  charCanvas.width = CHAR_PX_W;
+  charCanvas.height = CHAR_PX_H;
+  const charCtx = charCanvas.getContext("2d");
+  let charPose = "idle";
+  drawCharCanvas(charCtx, charPose);
+
+  const charTexture = new THREE.CanvasTexture(charCanvas);
+  charTexture.colorSpace = THREE.SRGBColorSpace;
+  const CHAR_BASE_Y = 0.66;
+  const CHAR_Z_OFF = -0.34; // stand toward the tile's top edge, not on the word
+  const charMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.86, 1.075),
+    new THREE.MeshBasicMaterial({ map: charTexture, transparent: true })
+  );
+  const charPosFor = (r, c) => {
+    const { x, z } = tileAt(r, c);
+    return { x, z: z + CHAR_Z_OFF };
+  };
+  const startPos = charPosFor(level.start[0], level.start[1]);
+  charMesh.position.set(startPos.x, CHAR_BASE_Y, startPos.z);
+  board.add(charMesh);
+
+  function setPose(pose) {
+    charPose = pose;
+    drawCharCanvas(charCtx, charPose);
+    charTexture.needsUpdate = true;
+  }
+
   // "Sketch boil": re-jitter the ink a few times a second so it feels alive.
   setInterval(() => {
     if (document.hidden) return;
@@ -157,7 +270,99 @@
       drawTileCanvas(t.ctx, t.word);
       t.texture.needsUpdate = true;
     }
+    drawCharCanvas(charCtx, charPose);
+    charTexture.needsUpdate = true;
   }, 340);
+
+  // ---- game state ----
+
+  const chipsEl = element.querySelector(".sq-chips");
+  const hintEl = element.querySelector(".sq-hint");
+  const pips = [...pipsEl.children];
+
+  let state = "idle"; // idle | hopping | judging | verdict
+  let pos = [...level.start];
+  let words = []; // appended (non-structural) words
+  let used = 0; // hops spent
+
+  function addChip(word) {
+    const chip = document.createElement("span");
+    chip.className = "sq-chip";
+    chip.style.setProperty("--tilt", `${rand(-2, 2).toFixed(1)}deg`);
+    chip.textContent = word;
+    chipsEl.appendChild(chip);
+    gsap.from(chip, { scale: 0, rotation: rand(-14, 14), duration: 0.35, ease: "back.out(2.5)" });
+  }
+
+  function bonk() {
+    gsap.timeline()
+      .to(charMesh.rotation, { z: -0.13, duration: 0.05 })
+      .to(charMesh.rotation, { z: 0.13, duration: 0.09, repeat: 2, yoyo: true })
+      .to(charMesh.rotation, { z: 0, duration: 0.05 });
+  }
+
+  function hopTo(r, c) {
+    state = "hopping";
+    const { x, z } = charPosFor(r, c);
+    setPose("hop");
+    gsap.timeline({ onComplete: () => land(r, c) })
+      .to(charMesh.scale, { x: 1.18, y: 0.78, duration: 0.09, ease: "power1.in" }) // anticipation squash
+      .to(charMesh.scale, { x: 0.94, y: 1.12, duration: 0.1 })
+      .to(charMesh.position, { x, z, duration: 0.27, ease: "none" }, 0.09)
+      .to(charMesh.position, { y: CHAR_BASE_Y + 0.8, duration: 0.14, ease: "power2.out" }, 0.09)
+      .to(charMesh.position, { y: CHAR_BASE_Y, duration: 0.13, ease: "power2.in" }, 0.23)
+      .to(charMesh.scale, { x: 1.1, y: 0.86, duration: 0.07 }, 0.36) // landing squash
+      .to(charMesh.scale, { x: 1, y: 1, duration: 0.12, ease: "back.out(3)" }, 0.43);
+  }
+
+  function land(r, c) {
+    pos = [r, c];
+    used += 1;
+    if (pips[used - 1]) pips[used - 1].classList.add("sq-used");
+    setPose("idle");
+
+    // landed-tile stamp pulse
+    const t = tile(r, c);
+    gsap.timeline()
+      .to(t.mesh.scale, { x: 1.07, y: 1.07, duration: 0.09 })
+      .to(t.mesh.scale, { x: 1, y: 1, duration: 0.18, ease: "back.out(2)" });
+
+    const word = t.word;
+    if (word !== "<bos>" && word !== "<eos>") {
+      words.push(word);
+      addChip(word);
+    }
+
+    if (word === "<eos>") return submit(false);
+    if (used >= level.budget) return submit(true);
+    state = "idle";
+  }
+
+  function submit(overflow) {
+    state = "judging";
+    setPose("think");
+    hintEl.textContent = overflow ? "context overflow! judging anyway…" : "judging…";
+    // verdict flow lands in the next commit
+  }
+
+  // ---- input ----
+
+  const DIRS = {
+    arrowup: [-1, 0], arrowdown: [1, 0], arrowleft: [0, -1], arrowright: [0, 1],
+    w: [-1, 0], s: [1, 0], a: [0, -1], d: [0, 1],
+  };
+
+  document.addEventListener("keydown", (e) => {
+    const dir = DIRS[e.key.toLowerCase()];
+    if (!dir || e.metaKey || e.ctrlKey || e.altKey) return;
+    e.preventDefault();
+    if (state !== "idle") return;
+    if (used === 0) gsap.to(hintEl, { opacity: 0.35, duration: 0.6 });
+    const nr = pos[0] + dir[0];
+    const nc = pos[1] + dir[1];
+    if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) return bonk();
+    hopTo(nr, nc);
+  });
 
   // ---- camera framing ----
   const VIEW = 7.0; // world units visible vertically
@@ -176,7 +381,10 @@
   new ResizeObserver(resize).observe(stage);
   resize();
 
-  renderer.setAnimationLoop(() => renderer.render(scene, camera));
+  renderer.setAnimationLoop(() => {
+    charMesh.quaternion.copy(camera.quaternion); // billboard the doodle
+    renderer.render(scene, camera);
+  });
 
   root.dataset.state = "ready";
 })();
