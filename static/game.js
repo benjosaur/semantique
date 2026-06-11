@@ -658,14 +658,24 @@
   let words = []; // appended (non-structural) words
   let used = 0; // hops spent
 
+  // Each prompt word is handwritten in: the ink reveals left→right, like the
+  // doodle is writing the sentence out.
   function addChip(word) {
     const chip = document.createElement("span");
     chip.className = "sq-chip";
     chip.style.setProperty("--tilt", `${rand(-2, 2).toFixed(1)}deg`);
-    chip.textContent = word;
+    const text = document.createElement("span");
+    text.className = "sq-chip-text";
+    text.textContent = word;
+    chip.appendChild(text);
     chipsEl.appendChild(chip);
     sfx.pop();
-    gsap.from(chip, { scale: 0, rotation: rand(-14, 14), duration: 0.35, ease: "back.out(2.5)" });
+    const dur = 0.16 + word.length * 0.06; // writing pace scales with word length
+    gsap.fromTo(
+      text,
+      { clipPath: "inset(-20% 100% -20% -10%)" },
+      { clipPath: "inset(-20% -10% -20% -10%)", duration: dur, ease: "none" }
+    );
   }
 
   function bonk() {

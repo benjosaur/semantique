@@ -116,16 +116,24 @@
   color: var(--ink-soft);
   margin-right: 4px;
 }
+.sq-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 11px;
+}
 .sq-chip {
   display: inline-block;
-  padding: 1px 12px 3px;
-  border: 2px solid var(--ink);
-  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
-  background: rgba(255, 255, 255, 0.6);
+  font-family: "Caveat", cursive;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1;
   transform: rotate(var(--tilt, 0deg));
 }
+.sq-chip-text {
+  display: inline-block;
+}
 .sq-chip-bos {
-  border-style: dashed;
   color: var(--ink-soft);
 }
 
