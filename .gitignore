@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# OS / editor
+.DS_Store
+
+# Secrets
+.env
+
+# Test artifacts
+.playwright-mcp/
