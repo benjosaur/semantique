@@ -14,51 +14,27 @@
   const INK_SOFT = "#5a564c";
 
   // ---- HUD ----
-  // The context window: "N/budget" counter + one token slot per hop, so the
-  // player literally watches their context fill up word by word.
+  // The context window: a plain "N/budget" counter that ticks up each hop.
   element.querySelector(".sq-target-word").textContent = level.target;
   const countEl = element.querySelector(".sq-context-count");
   const usedEl = element.querySelector(".sq-ctx-used");
   element.querySelector(".sq-ctx-cap").textContent = level.budget;
-  const slotsEl = element.querySelector(".sq-slots");
-  for (let i = 0; i < level.budget; i++) {
-    const slot = document.createElement("span");
-    slot.className = "sq-slot";
-    slot.style.setProperty("--tilt", `${(Math.random() * 8 - 4).toFixed(1)}deg`);
-    slotsEl.appendChild(slot);
-  }
-  const slotWord = (w) =>
-    w === "<bos>" || w === "<eos>" ? "·" : w.length > 5 ? w.slice(0, 4) + "…" : w;
   const hud = {
-    update(used, word) {
+    update(used) {
       usedEl.textContent = used;
-      const slot = slotsEl.children[used - 1];
-      if (!slot) return;
-      slot.classList.add("sq-filled");
-      slot.textContent = slotWord(word);
-      gsap.from(slot, { scale: 0, duration: 0.3, ease: "back.out(2.5)" });
     },
     warnFull() {
+      sfx.warn();
       countEl.classList.add("sq-full");
       gsap.to(countEl, { x: "+=3", yoyo: true, repeat: 5, duration: 0.05 });
     },
     overflow() {
       usedEl.textContent = level.budget + 1;
       countEl.classList.add("sq-full");
-      const burst = document.createElement("span");
-      burst.className = "sq-slot sq-burst";
-      burst.textContent = "✕";
-      slotsEl.appendChild(burst);
-      gsap.to(burst, { y: 10, rotation: 35, opacity: 0, duration: 0.8, ease: "power1.in" });
     },
     reset() {
       usedEl.textContent = 0;
       countEl.classList.remove("sq-full");
-      slotsEl.querySelector(".sq-burst")?.remove();
-      for (const slot of slotsEl.children) {
-        slot.classList.remove("sq-filled");
-        slot.textContent = "";
-      }
     },
   };
 
@@ -288,6 +264,7 @@
 
   // Depress a keycap and let it spring back, like the doodle typed it.
   function pressTile(t) {
+    sfx.press();
     gsap.timeline()
       .to(t.mesh.position, { y: -TILE_DEPTH / 2 - 0.14, duration: 0.07, ease: "power2.out" })
       .to(t.mesh.position, { y: -TILE_DEPTH / 2, duration: 0.3, ease: "back.out(2.2)" });
@@ -566,6 +543,111 @@
     charTexture.needsUpdate = true;
   }, 340);
 
+  // ---- sounds: a tiny Web Audio sketch-synth ----
+  // Every cue is an oscillator doodle or a pinch of filtered noise — no
+  // samples to load, and the bleeps match the hand-drawn look.
+
+  let ac = null;
+  let masterGain = null;
+  function audio() {
+    if (!ac) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      ac = new AC();
+      masterGain = ac.createGain();
+      masterGain.gain.value = 0.4;
+      masterGain.connect(ac.destination);
+    }
+    if (ac.state === "suspended") ac.resume();
+    return ac;
+  }
+  // Sounds often fire from gsap timelines (outside any user gesture), so
+  // unlock the context on real gestures — these also resume after suspension.
+  document.addEventListener("keydown", audio);
+  document.addEventListener("pointerdown", audio);
+
+  // one swept note with a fast attack and an exponential die-off
+  function tone({ type = "triangle", from = 440, to = from, dur = 0.12, vol = 0.3, at = 0 }) {
+    if (!audio()) return;
+    const t0 = ac.currentTime + at;
+    const osc = ac.createOscillator();
+    const g = ac.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(from, t0);
+    if (to !== from) osc.frequency.exponentialRampToValueAtTime(Math.max(to, 1), t0 + dur);
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    osc.connect(g).connect(masterGain);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.05);
+  }
+
+  // short low-passed noise burst — paper taps and keycap thocks
+  function thud({ dur = 0.05, vol = 0.4, freq = 1000, at = 0 }) {
+    if (!audio()) return;
+    const t0 = ac.currentTime + at;
+    const len = Math.ceil(ac.sampleRate * dur);
+    const buf = ac.createBuffer(1, len, ac.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = ac.createBufferSource();
+    src.buffer = buf;
+    const filter = ac.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = freq;
+    const g = ac.createGain();
+    g.gain.value = vol;
+    src.connect(filter).connect(g).connect(masterGain);
+    src.start(t0);
+  }
+
+  const sfx = {
+    jump() {
+      tone({ type: "triangle", from: 280, to: 640, dur: 0.14, vol: 0.3 }); // springy boing
+    },
+    press() {
+      thud({ dur: 0.045, vol: 0.5, freq: 1300 }); // keycap thock…
+      tone({ type: "sine", from: 160, to: 65, dur: 0.1, vol: 0.5 }); // …with a low bump
+    },
+    bonk() {
+      thud({ dur: 0.06, vol: 0.35, freq: 600 });
+      tone({ type: "square", from: 150, to: 70, dur: 0.16, vol: 0.16 });
+    },
+    pop() {
+      tone({ type: "triangle", from: 900, to: 1400, dur: 0.07, vol: 0.14 }); // chip appears
+    },
+    click() {
+      thud({ dur: 0.03, vol: 0.3, freq: 2500 }); // UI button tap
+    },
+    warn() {
+      tone({ type: "square", from: 660, dur: 0.07, vol: 0.1 });
+      tone({ type: "square", from: 660, dur: 0.07, vol: 0.1, at: 0.12 });
+    },
+    die() {
+      // dizzy warble while he wobbles…
+      for (let i = 0; i < 4; i++) {
+        tone({ type: "sine", from: i % 2 ? 392 : 330, dur: 0.1, vol: 0.16, at: i * 0.12 });
+      }
+      // …then a slide-whistle drop as he slips off the board (timeline hits 0.85)
+      tone({ type: "sine", from: 520, to: 90, dur: 0.62, vol: 0.26, at: 0.85 });
+    },
+    stamp(win) {
+      thud({ dur: 0.07, vol: 0.6, freq: 500 });
+      tone({ type: "sine", from: 130, to: 50, dur: 0.18, vol: 0.55 });
+      if (win) {
+        // quick rising arpeggio
+        tone({ type: "triangle", from: 523, dur: 0.09, vol: 0.22, at: 0.15 });
+        tone({ type: "triangle", from: 659, dur: 0.09, vol: 0.22, at: 0.24 });
+        tone({ type: "triangle", from: 784, dur: 0.16, vol: 0.22, at: 0.33 });
+      } else {
+        // glum two-note shrug
+        tone({ type: "triangle", from: 294, to: 277, dur: 0.16, vol: 0.18, at: 0.18 });
+        tone({ type: "triangle", from: 233, to: 220, dur: 0.26, vol: 0.18, at: 0.38 });
+      }
+    },
+  };
+
   // ---- game state ----
 
   const chipsEl = element.querySelector(".sq-chips");
@@ -587,7 +669,7 @@
     text.textContent = word;
     chip.appendChild(text);
     chipsEl.appendChild(chip);
-
+    sfx.pop();
     const dur = 0.16 + word.length * 0.06; // writing pace scales with word length
     gsap.fromTo(
       text,
@@ -597,6 +679,7 @@
   }
 
   function bonk() {
+    sfx.bonk();
     gsap.timeline()
       .to(charTilt, { z: -0.13, duration: 0.05 })
       .to(charTilt, { z: 0.13, duration: 0.09, repeat: 2, yoyo: true })
@@ -610,6 +693,7 @@
       .add(() => setPose("hop-up"))
       .to(charMesh.scale, { x: 1.18, y: 0.78, duration: 0.08, ease: "power1.in" }) // anticipation squash (feet pivot)
       .to(charMesh.scale, { x: 0.94, y: 1.12, duration: 0.09 })
+      .add(() => sfx.jump(), 0.08) // boing as the feet leave the key
       .to(charGroup.position, { x, z, duration: 0.24, ease: "power3.out" }, 0.08) // fast-out horizontal
       .to(charMesh.position, { y: 0.85, duration: 0.13, ease: "power2.out" }, 0.08) // arc up
       .add(() => setPose("hop-mid"), 0.14)
@@ -629,10 +713,10 @@
     const word = t.word;
 
     // the hop that EXCEEDS the window kills — even onto <eos>. The fatal
-    // word never makes it into the context: no chip, no slot.
+    // word never makes it into the context: no chip.
     if (used > level.budget) return die();
 
-    hud.update(used, word);
+    hud.update(used);
     setPose("idle");
     if (word !== "<bos>" && word !== "<eos>") {
       words.push(word);
@@ -662,6 +746,7 @@
     hud.overflow();
     hintEl.textContent = "";
     setPose("dead-dizzy");
+    sfx.die();
     gsap.timeline({ onComplete: showDeathCard })
       .to(charTilt, { z: 0.18, duration: 0.11, yoyo: true, repeat: 3 }) // dizzy wobble
       .add(() => setPose("dead"), 0.5)
@@ -746,7 +831,10 @@
     gsap.fromTo(
       stampEl,
       { opacity: 0, scale: 3, rotation: 24 },
-      { opacity: 1, scale: 1, rotation: 8, duration: 0.3, ease: "power3.in", delay: 0.45 }
+      {
+        opacity: 1, scale: 1, rotation: 8, duration: 0.3, ease: "power3.in", delay: 0.45,
+        onComplete: () => sfx.stamp(false),
+      }
     );
   }
 
@@ -803,7 +891,10 @@
     tl.fromTo(
       stampEl,
       { opacity: 0, scale: 3, rotation: 24 },
-      { opacity: 1, scale: 1, rotation: 8, duration: 0.3, ease: "power3.in" },
+      {
+        opacity: 1, scale: 1, rotation: 8, duration: 0.3, ease: "power3.in",
+        onComplete: () => sfx.stamp(res.verdict === "win"),
+      },
       ">-0.1"
     ).to(cardEl, { x: "+=5", yoyo: true, repeat: 3, duration: 0.04 }, ">"); // thump
   }
@@ -838,10 +929,13 @@
         charMesh.material.opacity = 1;
         setPose("idle");
       })
+      .add(() => sfx.pop()) // poof back in
       .to(charMesh.scale, { x: 1, y: 1, duration: 0.28, ease: "back.out(2.5)" });
   }
 
   againBtn.addEventListener("click", reset);
+  againBtn.addEventListener("click", () => sfx.click());
+  retryBtn.addEventListener("click", () => sfx.click());
 
   // ---- input ----
 
