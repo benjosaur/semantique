@@ -14,14 +14,53 @@
   const INK_SOFT = "#5a564c";
 
   // ---- HUD ----
+  // The context window: "N/budget" counter + one token slot per hop, so the
+  // player literally watches their context fill up word by word.
   element.querySelector(".sq-target-word").textContent = level.target;
-  const pipsEl = element.querySelector(".sq-pips");
+  const countEl = element.querySelector(".sq-context-count");
+  const usedEl = element.querySelector(".sq-ctx-used");
+  element.querySelector(".sq-ctx-cap").textContent = level.budget;
+  const slotsEl = element.querySelector(".sq-slots");
   for (let i = 0; i < level.budget; i++) {
-    const pip = document.createElement("span");
-    pip.className = "sq-pip";
-    pip.style.setProperty("--tilt", `${(Math.random() * 8 - 4).toFixed(1)}deg`);
-    pipsEl.appendChild(pip);
+    const slot = document.createElement("span");
+    slot.className = "sq-slot";
+    slot.style.setProperty("--tilt", `${(Math.random() * 8 - 4).toFixed(1)}deg`);
+    slotsEl.appendChild(slot);
   }
+  const slotWord = (w) =>
+    w === "<bos>" || w === "<eos>" ? "·" : w.length > 5 ? w.slice(0, 4) + "…" : w;
+  const hud = {
+    update(used, word) {
+      usedEl.textContent = used;
+      const slot = slotsEl.children[used - 1];
+      if (!slot) return;
+      slot.classList.add("sq-filled");
+      slot.textContent = slotWord(word);
+      gsap.from(slot, { scale: 0, duration: 0.3, ease: "back.out(2.5)" });
+    },
+    warnFull() {
+      countEl.classList.add("sq-full");
+      gsap.to(countEl, { x: "+=3", yoyo: true, repeat: 5, duration: 0.05 });
+    },
+    overflow() {
+      usedEl.textContent = level.budget + 1;
+      countEl.classList.add("sq-full");
+      const burst = document.createElement("span");
+      burst.className = "sq-slot sq-burst";
+      burst.textContent = "✕";
+      slotsEl.appendChild(burst);
+      gsap.to(burst, { y: 10, rotation: 35, opacity: 0, duration: 0.8, ease: "power1.in" });
+    },
+    reset() {
+      usedEl.textContent = 0;
+      countEl.classList.remove("sq-full");
+      slotsEl.querySelector(".sq-burst")?.remove();
+      for (const slot of slotsEl.children) {
+        slot.classList.remove("sq-filled");
+        slot.textContent = "";
+      }
+    },
+  };
 
   // Handwritten font must be loaded before we bake it into canvas textures.
   await Promise.all([
@@ -67,16 +106,27 @@
     ctx.closePath();
   }
 
-  const TILE_PX = 384; // texture resolution per tile
+  const TILE_PX = 384; // logical texture units per tile
+  // Canvas textures are baked at devicePixelRatio so words and ink lines stay
+  // crisp on hidpi screens (all drawing keeps using logical coordinates).
+  const TEX_SCALE = Math.min(window.devicePixelRatio || 1, 2);
 
   function drawTileCanvas(ctx, word) {
+    ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
     const special = word === "<bos>" || word === "<eos>";
-    ctx.clearRect(0, 0, TILE_PX, TILE_PX);
+    // opaque paper base — the keycap body is the rounded outline itself now,
+    // so this whole canvas IS the cap face (extruded silhouette clips it)
+    ctx.fillStyle = "#faf8f2";
+    ctx.fillRect(0, 0, TILE_PX, TILE_PX);
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
 
-    // paper fill so tiles sit on the ruled background
-    wobblyRoundRect(ctx, 26, 26, TILE_PX - 52, TILE_PX - 52, 56, 3);
+    // the ink line sits AT the geometry's rim — outer jitter clips against the
+    // extruded silhouette, so the drawn outline and the 3D edge are one line
+    const inset = 5;
+    const span = TILE_PX - inset * 2;
+    const cr = Math.round(span * 0.17);
+    wobblyRoundRect(ctx, inset, inset, span, span, cr, 3);
     ctx.fillStyle = "rgba(255, 253, 247, 0.92)";
     ctx.fill();
 
@@ -86,7 +136,7 @@
     ctx.lineWidth = 7;
     ctx.stroke();
     ctx.setLineDash([]);
-    wobblyRoundRect(ctx, 26, 26, TILE_PX - 52, TILE_PX - 52, 56, 4.5);
+    wobblyRoundRect(ctx, inset, inset, span, span, cr, 4.5);
     ctx.strokeStyle = special ? "rgba(90,86,76,0.35)" : "rgba(28,27,24,0.35)";
     ctx.lineWidth = 4;
     ctx.stroke();
@@ -100,21 +150,54 @@
     ctx.fillText(word, TILE_PX / 2 + rand(-2, 2), TILE_PX / 2 + rand(-1, 3));
   }
 
+  // Keycap sides: same paper as the cap so the button reads as ONE drawn
+  // object — hatch shading for depth and a bold ink line along the bottom
+  // silhouette (the cap's ring already inks the top edge; no second rim).
+  const SIDE_PX_W = 384;
+  const SIDE_PX_H = 128;
+
+  function drawTileSideCanvas(ctx) {
+    ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
+    ctx.fillStyle = "#faf8f2";
+    ctx.fillRect(0, 0, SIDE_PX_W, SIDE_PX_H);
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+
+    ctx.strokeStyle = "rgba(28,27,24,0.13)";
+    ctx.lineWidth = 5;
+    for (let x = rand(8, 44); x < SIDE_PX_W; x += rand(52, 84)) {
+      wobblyLine(ctx, x, SIDE_PX_H - 12, x + 67, 14, 2); // ~-55° up-right
+      ctx.stroke();
+    }
+
+    // bottom outline — wraps the whole silhouette via the side-wall UVs
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 7;
+    wobblyLine(ctx, -6, SIDE_PX_H - 7, SIDE_PX_W + 6, SIDE_PX_H - 7, 2.5);
+    ctx.stroke();
+  }
+
   // ---- three.js paper scene ----
   const scene = new THREE.Scene(); // transparent: CSS paper + ruled lines show through
 
-  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
-  camera.position.set(0, 10, 7);
-  camera.lookAt(0, 0, 0);
+  const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
+  camera.position.set(0, -0.9, 11.5); // slightly below-front: keycap sides read
+  camera.lookAt(0, 0.25, 0);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   stage.appendChild(renderer.domElement);
 
+  // Tilt group: the whole board leans away from the viewer, 22° back from
+  // vertical, like a keyboard propped up on a desk.
+  const boardTilt = new THREE.Group();
+  boardTilt.rotation.x = THREE.MathUtils.degToRad(68);
+  scene.add(boardTilt);
+
   // Board group: everything sits here, slightly slanted like a sketch.
   const board = new THREE.Group();
-  board.rotation.y = THREE.MathUtils.degToRad(1.5);
-  scene.add(board);
+  board.rotation.z = THREE.MathUtils.degToRad(1.5);
+  boardTilt.add(board);
 
   // ---- tiles ----
   const SPACING = 1.5;
@@ -124,12 +207,65 @@
     z: (r - (ROWS - 1) / 2) * SPACING,
   });
 
+  // Tiles are keycaps: an extruded rounded-rect silhouette — the 3D body
+  // follows the drawn outline directly (no square box behind it). The TOP
+  // FACE sits at y=0, so the old "tile surface" coordinates still mean the
+  // same thing.
+  const TILE_DEPTH = 0.42;
+  const TILE_R = TILE_SIZE * 0.17; // corner radius — the ink line traces it
+  const tileShape = new THREE.Shape();
+  {
+    const h = TILE_SIZE / 2;
+    tileShape.moveTo(-h + TILE_R, -h);
+    tileShape.lineTo(h - TILE_R, -h);
+    tileShape.quadraticCurveTo(h, -h, h, -h + TILE_R);
+    tileShape.lineTo(h, h - TILE_R);
+    tileShape.quadraticCurveTo(h, h, h - TILE_R, h);
+    tileShape.lineTo(-h + TILE_R, h);
+    tileShape.quadraticCurveTo(-h, h, -h, h - TILE_R);
+    tileShape.lineTo(-h, -h + TILE_R);
+    tileShape.quadraticCurveTo(-h, -h, -h + TILE_R, -h);
+  }
+  const tileGeometry = new THREE.ExtrudeGeometry(tileShape, {
+    depth: TILE_DEPTH,
+    bevelEnabled: false,
+    curveSegments: 6,
+  });
+  // Extrude UVs come out in shape units, not 0..1 — remap the caps to span
+  // the texture, and the side wall so v runs bottom→top (ink rim at the top).
+  {
+    const pos = tileGeometry.attributes.position;
+    const uv = tileGeometry.attributes.uv;
+    const [caps, walls] = tileGeometry.groups;
+    for (let i = caps.start; i < caps.start + caps.count; i++) {
+      uv.setXY(i, pos.getX(i) / TILE_SIZE + 0.5, pos.getY(i) / TILE_SIZE + 0.5);
+    }
+    for (let i = walls.start; i < walls.start + walls.count; i++) {
+      uv.setXY(i, uv.getX(i) / TILE_SIZE + 0.5, pos.getZ(i) / TILE_DEPTH);
+    }
+  }
+  // Shape lies in XY, extruded toward +z — stand it up so the cap faces +y
+  // with the top surface at local y=+TILE_DEPTH/2 (mesh y stays -TILE_DEPTH/2).
+  tileGeometry.rotateX(-Math.PI / 2);
+  tileGeometry.translate(0, -TILE_DEPTH / 2, 0);
+
+  // One shared side texture/material for all 16 keycaps.
+  const sideCanvas = document.createElement("canvas");
+  sideCanvas.width = SIDE_PX_W * TEX_SCALE;
+  sideCanvas.height = SIDE_PX_H * TEX_SCALE;
+  const sideCtx = sideCanvas.getContext("2d");
+  drawTileSideCanvas(sideCtx);
+  const sideTexture = new THREE.CanvasTexture(sideCanvas);
+  sideTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  sideTexture.colorSpace = THREE.SRGBColorSpace;
+  const sideMaterial = new THREE.MeshBasicMaterial({ map: sideTexture });
+
   const tiles = []; // { mesh, ctx, texture, word, row, col }
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const word = level.grid[r][c];
       const canvas = document.createElement("canvas");
-      canvas.width = canvas.height = TILE_PX;
+      canvas.width = canvas.height = TILE_PX * TEX_SCALE;
       const ctx = canvas.getContext("2d");
       drawTileCanvas(ctx, word);
 
@@ -137,18 +273,25 @@
       texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
       texture.colorSpace = THREE.SRGBColorSpace;
 
-      const mesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE),
-        new THREE.MeshBasicMaterial({ map: texture, transparent: true })
-      );
-      mesh.rotation.x = -Math.PI / 2; // lie flat on the table
+      // ExtrudeGeometry groups: [0] = caps (top + hidden bottom), [1] = side wall
+      const mesh = new THREE.Mesh(tileGeometry, [
+        new THREE.MeshBasicMaterial({ map: texture, transparent: false }),
+        sideMaterial,
+      ]);
       const { x, z } = tileAt(r, c);
-      mesh.position.set(x, 0, z);
+      mesh.position.set(x, -TILE_DEPTH / 2, z); // top face flush with y=0
       board.add(mesh);
       tiles.push({ mesh, ctx, texture, word, row: r, col: c });
     }
   }
   const tile = (r, c) => tiles[r * COLS + c];
+
+  // Depress a keycap and let it spring back, like the doodle typed it.
+  function pressTile(t) {
+    gsap.timeline()
+      .to(t.mesh.position, { y: -TILE_DEPTH / 2 - 0.14, duration: 0.07, ease: "power2.out" })
+      .to(t.mesh.position, { y: -TILE_DEPTH / 2, duration: 0.3, ease: "back.out(2.2)" });
+  }
 
   // ---- character: a line-doodle on a billboarded plane ----
 
@@ -175,8 +318,50 @@
   const CHAR_PX_W = 256;
   const CHAR_PX_H = 320;
 
+  // One outlined "tube" limb: a jittered quadratic stroked twice — fat ink,
+  // then a thin paper core — so arms/legs read as drawn shapes, not sticks.
+  function limb(ctx, x0, y0, cx, cy, x1, y1) {
+    const J = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(x0 + rand(-J, J), y0 + rand(-J, J));
+    ctx.quadraticCurveTo(cx + rand(-J, J), cy + rand(-J, J), x1 + rand(-J, J), y1 + rand(-J, J));
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 16;
+    ctx.stroke();
+    ctx.strokeStyle = "#fffdf7";
+    ctx.lineWidth = 9;
+    ctx.stroke();
+    ctx.strokeStyle = INK;
+  }
+
+  // Flat doodle shoe: a small ink-filled ellipse at the end of a leg.
+  function charFoot(ctx, x, y) {
+    ctx.beginPath();
+    ctx.ellipse(x + rand(-2, 2), y + rand(-1.5, 1.5), 9, 5, 0, 0, Math.PI * 2);
+    ctx.fillStyle = INK;
+    ctx.fill();
+  }
+
+  // Mitten hand: a paper-filled wobbly circle with an ink outline.
+  function charHand(ctx, x, y) {
+    wobblyCircle(ctx, x, y, 9, 1.5);
+    ctx.fillStyle = "#fffdf7";
+    ctx.fill();
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = INK;
+    ctx.stroke();
+  }
+
+  // Dazed X eye: two short crossed strokes.
+  function xEye(ctx, cx, cy) {
+    ctx.lineWidth = 4.5;
+    wobblyLine(ctx, cx - 7, cy - 7, cx + 7, cy + 7, 1); ctx.stroke();
+    wobblyLine(ctx, cx - 7, cy + 7, cx + 7, cy - 7, 1); ctx.stroke();
+  }
+
   function drawCharCanvas(ctx, pose) {
     const J = 2.5;
+    ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
     ctx.clearRect(0, 0, CHAR_PX_W, CHAR_PX_H);
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
@@ -184,78 +369,183 @@
     ctx.fillStyle = INK;
     ctx.lineWidth = 7;
 
-    // head
-    wobblyCircle(ctx, 128, 96, 50, 2);
-    ctx.stroke();
-    ctx.fillStyle = "rgba(255,253,247,0.9)";
+    // limbs first, so the torso fill covers the shoulder/hip joins.
+    // shoulders ~(104,142)/(152,142), hips ~(112,205)/(144,205), feet base y≈308
+    if (pose === "think") {
+      limb(ctx, 104, 142, 88, 180, 86, 210); // arm down
+      limb(ctx, 152, 142, 178, 138, 146, 118); // hand up to the chin
+      limb(ctx, 112, 205, 106, 255, 104, 300); // legs straight
+      limb(ctx, 144, 205, 150, 255, 152, 300);
+      charFoot(ctx, 102, 303); charFoot(ctx, 154, 303);
+      charHand(ctx, 86, 210); charHand(ctx, 146, 118);
+    } else if (pose === "hop-up") {
+      // launch crouch: knees bent, feet still low, arms swung back
+      limb(ctx, 104, 145, 80, 170, 70, 212);
+      limb(ctx, 152, 145, 176, 170, 186, 212);
+      limb(ctx, 112, 205, 86, 252, 104, 294);
+      limb(ctx, 144, 205, 170, 252, 152, 294);
+      charFoot(ctx, 102, 298); charFoot(ctx, 154, 298);
+      charHand(ctx, 70, 212); charHand(ctx, 186, 212);
+    } else if (pose === "hop-mid") {
+      // peak tuck: knees out, feet pulled up, arms in a V overhead
+      limb(ctx, 104, 142, 80, 92, 70, 46);
+      limb(ctx, 152, 142, 176, 92, 186, 46);
+      limb(ctx, 112, 205, 82, 232, 108, 252);
+      limb(ctx, 144, 205, 174, 232, 148, 252);
+      charFoot(ctx, 106, 254); charFoot(ctx, 150, 254);
+      charHand(ctx, 70, 46); charHand(ctx, 186, 46);
+    } else if (pose === "hop-land") {
+      // deep landing bend: feet wide, arms thrown forward at chest height
+      limb(ctx, 104, 148, 80, 152, 58, 150);
+      limb(ctx, 152, 148, 176, 152, 198, 150);
+      limb(ctx, 112, 208, 82, 256, 88, 300);
+      limb(ctx, 144, 208, 174, 256, 168, 300);
+      charFoot(ctx, 86, 303); charFoot(ctx, 170, 303);
+      charHand(ctx, 58, 150); charHand(ctx, 198, 150);
+    } else if (pose === "dead-dizzy") {
+      // dazed: arms dangle straight down, legs slightly crossed
+      limb(ctx, 104, 145, 100, 182, 98, 218);
+      limb(ctx, 152, 145, 156, 182, 158, 218);
+      limb(ctx, 112, 205, 130, 255, 140, 300);
+      limb(ctx, 144, 205, 124, 255, 116, 300);
+      charFoot(ctx, 140, 303); charFoot(ctx, 114, 303);
+      charHand(ctx, 98, 218); charHand(ctx, 158, 218);
+    } else if (pose === "dead") {
+      // crumpled sprawl: everything flung wide and low
+      limb(ctx, 104, 150, 70, 158, 40, 176);
+      limb(ctx, 152, 150, 186, 158, 216, 176);
+      limb(ctx, 112, 208, 76, 252, 44, 290);
+      limb(ctx, 144, 208, 180, 252, 212, 290);
+      charFoot(ctx, 42, 293); charFoot(ctx, 214, 293);
+      charHand(ctx, 40, 176); charHand(ctx, 216, 176);
+    } else {
+      // idle: arms down-out, legs straight
+      limb(ctx, 104, 142, 90, 178, 82, 206);
+      limb(ctx, 152, 142, 166, 178, 174, 206);
+      limb(ctx, 112, 205, 106, 255, 104, 300);
+      limb(ctx, 144, 205, 150, 255, 152, 300);
+      charFoot(ctx, 102, 303); charFoot(ctx, 154, 303);
+      charHand(ctx, 82, 206); charHand(ctx, 174, 206);
+    }
+
+    // torso: a paper-filled bean drawn over the limb joins
+    wobblyRoundRect(ctx, 96, 118, 64, 92, 30, J);
+    ctx.fillStyle = "rgba(255,253,247,0.95)";
     ctx.fill();
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 7;
+    ctx.stroke();
+
+    // head, after the torso so it overlaps the neck
+    wobblyCircle(ctx, 128, 78, 44, 2);
+    ctx.fillStyle = "rgba(255,253,247,0.95)";
+    ctx.fill();
+    ctx.stroke();
+
+    // one flat accent detail: a little scarf at the neck
+    ctx.strokeStyle = "#b3402e";
+    ctx.lineWidth = 8;
+    wobblyLine(ctx, 106, 126, 150, 126, 2); ctx.stroke();
+    ctx.strokeStyle = INK;
     ctx.fillStyle = INK;
 
-    // face
-    const blink = pose === "idle" && Math.random() < 0.18;
-    if (blink) {
-      wobblyLine(ctx, 102, 92, 118, 92, 1); ctx.stroke();
-      wobblyLine(ctx, 138, 92, 154, 92, 1); ctx.stroke();
+    // eyes
+    if (pose === "dead" || pose === "dead-dizzy") {
+      xEye(ctx, 110, 74); xEye(ctx, 146, 74);
+    } else if (pose === "idle" && Math.random() < 0.18) {
+      ctx.lineWidth = 5; // blink
+      wobblyLine(ctx, 102, 74, 118, 74, 1); ctx.stroke();
+      wobblyLine(ctx, 138, 74, 154, 74, 1); ctx.stroke();
     } else {
-      ctx.beginPath(); ctx.arc(110, 90, 5.5, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(146, 90, 5.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(110, 74, 5.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(146, 74, 5.5, 0, Math.PI * 2); ctx.fill();
     }
-    ctx.beginPath();
+
+    // mouth
+    ctx.lineWidth = 6;
+    if (pose === "think" || pose === "hop-up") {
+      ctx.beginPath();
+      ctx.arc(128, 100, pose === "think" ? 9 : 7, 0, Math.PI * 2); // little "o"
+      ctx.stroke();
+    } else if (pose === "hop-mid") {
+      ctx.beginPath();
+      ctx.arc(128, 96, 16, 0, Math.PI); // big open grin
+      ctx.closePath();
+      ctx.fill();
+    } else if (pose === "hop-land") {
+      wobblyLine(ctx, 108, 102, 148, 102, 1.5); ctx.stroke(); // gritted teeth
+    } else if (pose === "dead-dizzy") {
+      ctx.beginPath(); // wavy dazed squiggle
+      for (let i = 0; i <= 16; i++) {
+        const x = 108 + (i / 16) * 40;
+        const y = 102 + Math.sin((i / 16) * Math.PI * 3) * 4 + rand(-1, 1);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    } else if (pose === "dead") {
+      wobblyLine(ctx, 112, 100, 144, 100, 1.5); ctx.stroke();
+      ctx.beginPath(); // little tongue blob
+      ctx.ellipse(136 + rand(-1, 1), 110, 6, 9, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.arc(128, 88, 20, Math.PI * 0.18, Math.PI * 0.82); // smile
+      ctx.stroke();
+    }
+
+    // pose extras
     if (pose === "think") {
-      ctx.arc(128, 116, 9, 0, Math.PI * 2); // little "o" mouth
-      ctx.stroke();
-    } else {
-      ctx.arc(128, 104, 22, Math.PI * 0.18, Math.PI * 0.82); // smile
-      ctx.stroke();
-    }
-
-    // body
-    wobblyLine(ctx, 128, 146, 128, 236, J); ctx.stroke();
-
-    // arms + legs by pose
-    if (pose === "hop") {
-      wobblyLine(ctx, 128, 172, 76, 122, J); ctx.stroke();
-      wobblyLine(ctx, 128, 172, 180, 122, J); ctx.stroke();
-      wobblyLine(ctx, 128, 236, 96, 270, J); ctx.stroke();
-      wobblyLine(ctx, 128, 236, 162, 268, J); ctx.stroke();
-    } else if (pose === "think") {
-      wobblyLine(ctx, 128, 176, 88, 210, J); ctx.stroke();
-      wobblyLine(ctx, 128, 176, 158, 142, J); ctx.stroke(); // hand to chin
-      wobblyLine(ctx, 128, 236, 104, 302, J); ctx.stroke();
-      wobblyLine(ctx, 128, 236, 152, 302, J); ctx.stroke();
       ctx.font = '400 56px "Patrick Hand"';
       ctx.textAlign = "center";
       ctx.fillText("?", 196 + rand(-2, 2), 56 + rand(-2, 2));
-    } else {
-      wobblyLine(ctx, 128, 176, 90, 216, J); ctx.stroke();
-      wobblyLine(ctx, 128, 176, 166, 216, J); ctx.stroke();
-      wobblyLine(ctx, 128, 236, 104, 302, J); ctx.stroke();
-      wobblyLine(ctx, 128, 236, 152, 302, J); ctx.stroke();
+    } else if (pose === "hop-mid") {
+      ctx.lineWidth = 5; // motion dashes below the feet
+      wobblyLine(ctx, 106, 272, 100, 292, 1.5); ctx.stroke();
+      wobblyLine(ctx, 128, 276, 128, 298, 1.5); ctx.stroke();
+      wobblyLine(ctx, 150, 272, 156, 292, 1.5); ctx.stroke();
+    } else if (pose === "dead") {
+      ctx.lineWidth = 4; // dizzy spiral doodle above the head
+      ctx.beginPath();
+      for (let i = 0; i <= 40; i++) {
+        const a = (i / 40) * Math.PI * 4;
+        const r = 2 + (i / 40) * 11;
+        const x = 188 + r * Math.cos(a) + rand(-1, 1);
+        const y = 34 + r * Math.sin(a) + rand(-1, 1);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
     }
   }
 
   const charCanvas = document.createElement("canvas");
-  charCanvas.width = CHAR_PX_W;
-  charCanvas.height = CHAR_PX_H;
+  charCanvas.width = CHAR_PX_W * TEX_SCALE;
+  charCanvas.height = CHAR_PX_H * TEX_SCALE;
   const charCtx = charCanvas.getContext("2d");
   let charPose = "idle";
   drawCharCanvas(charCtx, charPose);
 
   const charTexture = new THREE.CanvasTexture(charCanvas);
   charTexture.colorSpace = THREE.SRGBColorSpace;
-  const CHAR_BASE_Y = 0.66;
-  const CHAR_Z_OFF = -0.34; // stand toward the tile's top edge, not on the word
+  const CHAR_STANDOFF = 0.12; // feet hover just above the keycap tops
+  const CHAR_Z_OFF = -0.15; // stand toward the tile's top edge, not on the word
+  const charGeometry = new THREE.PlaneGeometry(0.86, 1.075);
+  charGeometry.translate(0, 1.075 / 2, 0); // pivot at the feet
   const charMesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.86, 1.075),
+    charGeometry,
     new THREE.MeshBasicMaterial({ map: charTexture, transparent: true })
   );
+  charMesh.renderOrder = 1; // only transparent mesh left — draw after keycaps
+  const charTilt = { z: 0 }; // cartoon lean, composed into the billboard quat
   const charPosFor = (r, c) => {
     const { x, z } = tileAt(r, c);
     return { x, z: z + CHAR_Z_OFF };
   };
+  // charGroup carries the grid position; charMesh.position.y is the jump arc.
   const startPos = charPosFor(level.start[0], level.start[1]);
-  charMesh.position.set(startPos.x, CHAR_BASE_Y, startPos.z);
-  board.add(charMesh);
+  const charGroup = new THREE.Group();
+  charGroup.position.set(startPos.x, CHAR_STANDOFF, startPos.z);
+  charGroup.add(charMesh);
+  board.add(charGroup);
 
   function setPose(pose) {
     charPose = pose;
@@ -270,6 +560,8 @@
       drawTileCanvas(t.ctx, t.word);
       t.texture.needsUpdate = true;
     }
+    drawTileSideCanvas(sideCtx);
+    sideTexture.needsUpdate = true;
     drawCharCanvas(charCtx, charPose);
     charTexture.needsUpdate = true;
   }, 340);
@@ -278,9 +570,8 @@
 
   const chipsEl = element.querySelector(".sq-chips");
   const hintEl = element.querySelector(".sq-hint");
-  const pips = [...pipsEl.children];
 
-  let state = "idle"; // idle | hopping | judging | verdict
+  let state = "idle"; // idle | hopping | judging | verdict | dead
   let pos = [...level.start];
   let words = []; // appended (non-structural) words
   let used = 0; // hops spent
@@ -296,51 +587,77 @@
 
   function bonk() {
     gsap.timeline()
-      .to(charMesh.rotation, { z: -0.13, duration: 0.05 })
-      .to(charMesh.rotation, { z: 0.13, duration: 0.09, repeat: 2, yoyo: true })
-      .to(charMesh.rotation, { z: 0, duration: 0.05 });
+      .to(charTilt, { z: -0.13, duration: 0.05 })
+      .to(charTilt, { z: 0.13, duration: 0.09, repeat: 2, yoyo: true })
+      .to(charTilt, { z: 0, duration: 0.05 });
   }
 
   function hopTo(r, c) {
     state = "hopping";
     const { x, z } = charPosFor(r, c);
-    setPose("hop");
     gsap.timeline({ onComplete: () => land(r, c) })
-      .to(charMesh.scale, { x: 1.18, y: 0.78, duration: 0.09, ease: "power1.in" }) // anticipation squash
-      .to(charMesh.scale, { x: 0.94, y: 1.12, duration: 0.1 })
-      .to(charMesh.position, { x, z, duration: 0.27, ease: "none" }, 0.09)
-      .to(charMesh.position, { y: CHAR_BASE_Y + 0.8, duration: 0.14, ease: "power2.out" }, 0.09)
-      .to(charMesh.position, { y: CHAR_BASE_Y, duration: 0.13, ease: "power2.in" }, 0.23)
-      .to(charMesh.scale, { x: 1.1, y: 0.86, duration: 0.07 }, 0.36) // landing squash
-      .to(charMesh.scale, { x: 1, y: 1, duration: 0.12, ease: "back.out(3)" }, 0.43);
+      .add(() => setPose("hop-up"))
+      .to(charMesh.scale, { x: 1.18, y: 0.78, duration: 0.08, ease: "power1.in" }) // anticipation squash (feet pivot)
+      .to(charMesh.scale, { x: 0.94, y: 1.12, duration: 0.09 })
+      .to(charGroup.position, { x, z, duration: 0.24, ease: "power3.out" }, 0.08) // fast-out horizontal
+      .to(charMesh.position, { y: 0.85, duration: 0.13, ease: "power2.out" }, 0.08) // arc up
+      .add(() => setPose("hop-mid"), 0.14)
+      .to(charMesh.position, { y: 0, duration: 0.12, ease: "power2.in" }, 0.21) // arc down
+      .add(() => setPose("hop-land"), 0.30)
+      .to(charMesh.scale, { x: 1.12, y: 0.84, duration: 0.06 }, 0.33) // landing squash
+      .to(charMesh.scale, { x: 1, y: 1, duration: 0.11, ease: "back.out(3)" }, 0.39);
   }
 
   function land(r, c) {
     pos = [r, c];
     used += 1;
-    if (pips[used - 1]) pips[used - 1].classList.add("sq-used");
-    setPose("idle");
 
-    // landed-tile stamp pulse
+    // landed keycap press
     const t = tile(r, c);
-    gsap.timeline()
-      .to(t.mesh.scale, { x: 1.07, y: 1.07, duration: 0.09 })
-      .to(t.mesh.scale, { x: 1, y: 1, duration: 0.18, ease: "back.out(2)" });
-
+    pressTile(t);
     const word = t.word;
+
+    // the hop that EXCEEDS the window kills — even onto <eos>. The fatal
+    // word never makes it into the context: no chip, no slot.
+    if (used > level.budget) return die();
+
+    hud.update(used, word);
+    setPose("idle");
     if (word !== "<bos>" && word !== "<eos>") {
       words.push(word);
       addChip(word);
     }
 
-    if (word === "<eos>") return submit(false);
-    if (used >= level.budget) return submit(true);
+    if (word === "<eos>") return submit();
+    if (used === level.budget) {
+      hud.warnFull();
+      hintEl.textContent = "context window full! one more hop and…";
+      gsap.to(hintEl, { opacity: 1, duration: 0.3 });
+    }
     state = "idle";
     if (buffered) {
       const dir = buffered;
       buffered = null;
       tryMove(dir);
     }
+  }
+
+  // Overflow death: a dizzy wobble, then the doodle crumples and slides
+  // clean off the bottom of the board.
+  function die() {
+    state = "dead";
+    buffered = null;
+    gsap.killTweensOf([charMesh.scale, charMesh.position, charGroup.position, charTilt]);
+    hud.overflow();
+    hintEl.textContent = "";
+    setPose("dead-dizzy");
+    gsap.timeline({ onComplete: showDeathCard })
+      .to(charTilt, { z: 0.18, duration: 0.11, yoyo: true, repeat: 3 }) // dizzy wobble
+      .add(() => setPose("dead"), 0.5)
+      .to(charMesh.scale, { y: 0.6, x: 1.25, duration: 0.15, ease: "power2.in" }, 0.5) // crumple (feet pivot)
+      .to(charMesh.position, { y: "-=3", duration: 0.6, ease: "power1.in" }, 0.85) // slides off the board
+      .to(charTilt, { z: Math.PI * 0.85, duration: 0.6, ease: "power1.in" }, 0.85)
+      .to(charMesh.material, { opacity: 0, duration: 0.25 }, 1.2);
   }
 
   // ---- judging + verdict ----
@@ -353,16 +670,14 @@
   const retryBtn = element.querySelector(".sq-retry");
   const againBtn = element.querySelector(".sq-again");
 
-  async function submit(overflow) {
+  async function submit() {
     state = "judging";
     buffered = null;
     setPose("think");
-    hintEl.textContent = overflow
-      ? "context window overflowed! the judge reads it anyway…"
-      : "the judge is reading…";
+    hintEl.textContent = "the judge is reading…";
     gsap.to(hintEl, { opacity: 1, duration: 0.3 });
     const bob = gsap.to(charMesh.position, {
-      y: CHAR_BASE_Y + 0.12, duration: 0.55, repeat: -1, yoyo: true, ease: "sine.inOut",
+      y: 0.12, duration: 0.55, repeat: -1, yoyo: true, ease: "sine.inOut",
     });
     const slowTimer = setTimeout(() => {
       hintEl.textContent = "the tiny model is stretching its parameters…";
@@ -376,10 +691,10 @@
     }
     clearTimeout(slowTimer);
     bob.kill();
-    gsap.to(charMesh.position, { y: CHAR_BASE_Y, duration: 0.2 });
+    gsap.to(charMesh.position, { y: 0, duration: 0.2 });
 
-    if (!res || !res.ok) return judgeFailed(overflow, res && res.error);
-    showVerdict(res, overflow);
+    if (!res || !res.ok) return judgeFailed(res && res.error);
+    showVerdict(res);
   }
 
   function openCard() {
@@ -392,7 +707,7 @@
     );
   }
 
-  function judgeFailed(overflow, error) {
+  function judgeFailed(error) {
     console.warn("judge failed:", error);
     sentenceEl.textContent = "the judge dozed off…";
     barsEl.innerHTML = "";
@@ -401,26 +716,38 @@
     againBtn.classList.add("sq-hidden");
     retryBtn.onclick = () => {
       overlayEl.classList.add("sq-hidden");
-      submit(overflow);
+      submit();
     };
     openCard();
   }
 
-  function showVerdict(res, overflow) {
+  // Death card: same overlay, but there's no sentence to judge — the
+  // context window already ate the doodle.
+  function showDeathCard() {
+    sentenceEl.textContent = "the context window overflowed…";
+    barsEl.innerHTML = "";
+    stampEl.textContent = "context exceeded!";
+    stampEl.classList.remove("sq-win");
+    stampEl.style.opacity = 0;
+    retryBtn.classList.add("sq-hidden");
+    againBtn.classList.remove("sq-hidden");
+    openCard();
+    gsap.fromTo(
+      stampEl,
+      { opacity: 0, scale: 3, rotation: 24 },
+      { opacity: 1, scale: 1, rotation: 8, duration: 0.3, ease: "power3.in", delay: 0.45 }
+    );
+  }
+
+  function showVerdict(res) {
     state = "verdict";
-    setPose(res.verdict === "win" ? "hop" : "idle");
+    setPose(res.verdict === "win" ? "hop-mid" : "idle");
     hintEl.textContent = "";
 
     sentenceEl.innerHTML = "";
     const quote = document.createElement("div");
     quote.textContent = `“${res.sentence}”`;
     sentenceEl.appendChild(quote);
-    if (overflow) {
-      const note = document.createElement("div");
-      note.textContent = "— context window overflowed —";
-      note.style.cssText = "font-family:'Patrick Hand',cursive;font-size:17px;color:#b3402e;";
-      sentenceEl.appendChild(note);
-    }
 
     // probability bars, sorted by prob so the verdict reads top-down
     barsEl.innerHTML = "";
@@ -485,7 +812,7 @@
     used = 0;
     pos = [...level.start];
     [...chipsEl.querySelectorAll(".sq-chip:not(.sq-chip-bos)")].forEach((c) => c.remove());
-    pips.forEach((p) => p.classList.remove("sq-used"));
+    hud.reset();
     hintEl.textContent = "arrow keys / WASD to hop";
     gsap.to(hintEl, { opacity: 1, duration: 0.4 });
 
@@ -494,7 +821,10 @@
     gsap.timeline({ onComplete: () => (state = "idle") })
       .to(charMesh.scale, { x: 0, y: 0, duration: 0.18, ease: "power2.in" })
       .add(() => {
-        charMesh.position.set(home.x, CHAR_BASE_Y, home.z);
+        charGroup.position.set(home.x, CHAR_STANDOFF, home.z);
+        charMesh.position.y = 0;
+        charTilt.z = 0;
+        charMesh.material.opacity = 1;
         setPose("idle");
       })
       .to(charMesh.scale, { x: 1, y: 1, duration: 0.28, ease: "back.out(2.5)" });
@@ -537,19 +867,29 @@
     const w = stage.clientWidth || 1;
     const h = stage.clientHeight || 1;
     const aspect = w / h;
-    const vh = Math.max(VIEW, 6.8 / aspect); // keep the board inside narrow windows
-    camera.left = (-vh * aspect) / 2;
-    camera.right = (vh * aspect) / 2;
-    camera.top = vh / 2;
-    camera.bottom = -vh / 2;
+    // fov stays 32°; dolly the camera so the board fits either way
+    const need = Math.max(VIEW, 6.8 / aspect); // keep the board inside narrow windows
+    camera.position.z = need / 2 / Math.tan(THREE.MathUtils.degToRad(32 / 2));
+    camera.aspect = aspect;
+    camera.lookAt(0, 0.25, 0);
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
   }
   new ResizeObserver(resize).observe(stage);
   resize();
 
+  // The board never moves, so the billboard's parent correction is constant.
+  const _bbParentInv = new THREE.Quaternion();
+  charGroup.getWorldQuaternion(_bbParentInv).invert();
+  const _bbSpin = new THREE.Quaternion();
+  const _Z = new THREE.Vector3(0, 0, 1);
+
   renderer.setAnimationLoop(() => {
-    charMesh.quaternion.copy(camera.quaternion); // billboard the doodle
+    // billboard the doodle, then lean it by charTilt.z (bonks, deaths…)
+    charMesh.quaternion
+      .copy(_bbParentInv)
+      .multiply(camera.quaternion)
+      .multiply(_bbSpin.setFromAxisAngle(_Z, charTilt.z));
     renderer.render(scene, camera);
   });
 
