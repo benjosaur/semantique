@@ -88,8 +88,15 @@ def score_labels(sentence: str, labels: list[str]) -> dict[str, float]:
     return extract_label_logprobs(content[0].top_logprobs, labels)
 
 
-def judge(words: list[str], target: str, labels: list[str]) -> dict:
-    """Server function called from JS when the player reaches <eos>."""
+def judge(payload: dict) -> dict:
+    """Server function called from JS when the player reaches <eos>.
+
+    Single-dict payload: Gradio's component server reliably passes exactly
+    one JSON argument through to server functions.
+    """
+    words = payload["words"]
+    target = payload["target"]
+    labels = payload["labels"]
     if not words:
         return {
             "ok": True,
@@ -100,7 +107,12 @@ def judge(words: list[str], target: str, labels: list[str]) -> dict:
         }
     sentence = assemble_sentence(words)
     try:
-        probs = renormalize(score_labels(sentence, labels))
+        if os.environ.get("JUDGE_FAKE"):  # offline dev mode: no API call
+            fake = {label: -6.0 - i for i, label in enumerate(labels)}
+            fake["happy" if ("great" in words or "not" in words) else "sad"] = -0.3
+            probs = renormalize(fake)
+        else:
+            probs = renormalize(score_labels(sentence, labels))
     except Exception as e:
         return {"ok": False, "error": str(e)}
     winner = max(probs, key=probs.get)
