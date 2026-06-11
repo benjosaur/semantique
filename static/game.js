@@ -576,8 +576,8 @@
   let words = []; // appended (non-structural) words
   let used = 0; // hops spent
 
-  // Each prompt word is handwritten in: the ink reveals left→right under a
-  // travelling pen nib, like the doodle is writing the sentence out.
+  // Each prompt word is handwritten in: the ink reveals left→right, like the
+  // doodle is writing the sentence out.
   function addChip(word) {
     const chip = document.createElement("span");
     chip.className = "sq-chip";
@@ -585,22 +585,15 @@
     const text = document.createElement("span");
     text.className = "sq-chip-text";
     text.textContent = word;
-    const pen = document.createElement("span");
-    pen.className = "sq-pen";
-    pen.textContent = "✎";
-    chip.append(text, pen);
+    chip.appendChild(text);
     chipsEl.appendChild(chip);
 
-    const dur = 0.16 + word.length * 0.06; // pen pace scales with word length
-    gsap.timeline()
-      .fromTo(
-        text,
-        { clipPath: "inset(-20% 100% -20% -10%)" },
-        { clipPath: "inset(-20% -10% -20% -10%)", duration: dur, ease: "none" }
-      )
-      .fromTo(pen, { x: 0 }, { x: text.offsetWidth, duration: dur, ease: "none" }, 0)
-      .to(pen, { y: "-=2", duration: 0.06, repeat: Math.ceil(dur / 0.06), yoyo: true }, 0) // scribble jiggle
-      .to(pen, { autoAlpha: 0, y: -8, duration: 0.18, onComplete: () => pen.remove() });
+    const dur = 0.16 + word.length * 0.06; // writing pace scales with word length
+    gsap.fromTo(
+      text,
+      { clipPath: "inset(-20% 100% -20% -10%)" },
+      { clipPath: "inset(-20% -10% -20% -10%)", duration: dur, ease: "none" }
+    );
   }
 
   function bonk() {

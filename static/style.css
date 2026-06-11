@@ -153,7 +153,6 @@
   gap: 11px;
 }
 .sq-chip {
-  position: relative;
   display: inline-block;
   font-family: "Caveat", cursive;
   font-size: 28px;
@@ -166,15 +165,6 @@
 }
 .sq-chip-bos {
   color: var(--ink-soft);
-}
-.sq-pen {
-  position: absolute;
-  left: -3px;
-  bottom: -1px;
-  font-size: 22px;
-  line-height: 1;
-  color: var(--ink);
-  pointer-events: none;
 }
 
 /* ---- hint ---- */
