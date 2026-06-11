@@ -52,8 +52,8 @@ Built for the **Build Small Hackathon** (Thousand Token Wood track).
 
 ```bash
 uv venv && uv pip install -r requirements-dev.txt
-hf auth login                 # needs any valid HF token for inference
-python app.py                 # http://127.0.0.1:7860
+echo "HF_TOKEN=hf_..." > .env  # any valid HF token (or use `hf auth login`)
+python app.py                  # http://127.0.0.1:7860
 ```
 
 No token handy? `JUDGE_FAKE=1 python app.py` runs an offline stub judge.
@@ -76,7 +76,8 @@ on every board-attainable sentence).
 4. Push the code:
 
    ```bash
-   hf upload <your-username>/semantique . . --repo-type space
+   hf upload <your-username>/semantique . . --repo-type space \
+     --exclude ".env" --exclude ".venv/*" --exclude ".playwright-mcp/*"
    ```
 
    (or `git remote add space https://huggingface.co/spaces/<you>/semantique

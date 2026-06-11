@@ -10,7 +10,10 @@ Swapping to a local model later only requires reimplementing score_labels().
 import math
 import os
 
+from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
+
+load_dotenv()  # local dev: HF_TOKEN lives in .env (gitignored); Spaces use a secret
 
 JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "Qwen/Qwen3-4B-Instruct-2507")
 
