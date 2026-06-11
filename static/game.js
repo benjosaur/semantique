@@ -336,6 +336,11 @@
     if (word === "<eos>") return submit(false);
     if (used >= level.budget) return submit(true);
     state = "idle";
+    if (buffered) {
+      const dir = buffered;
+      buffered = null;
+      tryMove(dir);
+    }
   }
 
   // ---- judging + verdict ----
@@ -350,6 +355,7 @@
 
   async function submit(overflow) {
     state = "judging";
+    buffered = null;
     setPose("think");
     hintEl.textContent = overflow
       ? "context window overflowed! the judge reads it anyway…"
@@ -503,16 +509,26 @@
     w: [-1, 0], s: [1, 0], a: [0, -1], d: [0, 1],
   };
 
-  document.addEventListener("keydown", (e) => {
-    const dir = DIRS[e.key.toLowerCase()];
-    if (!dir || e.metaKey || e.ctrlKey || e.altKey) return;
-    e.preventDefault();
-    if (state !== "idle") return;
+  let buffered = null; // 1-deep move buffer so mashing feels responsive
+
+  function tryMove(dir) {
     if (used === 0) gsap.to(hintEl, { opacity: 0.35, duration: 0.6 });
     const nr = pos[0] + dir[0];
     const nc = pos[1] + dir[1];
     if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) return bonk();
     hopTo(nr, nc);
+  }
+
+  document.addEventListener("keydown", (e) => {
+    const dir = DIRS[e.key.toLowerCase()];
+    if (!dir || e.metaKey || e.ctrlKey || e.altKey) return;
+    e.preventDefault();
+    if (state === "hopping" && !buffered) {
+      buffered = dir;
+      return;
+    }
+    if (state !== "idle") return;
+    tryMove(dir);
   });
 
   // ---- camera framing ----
