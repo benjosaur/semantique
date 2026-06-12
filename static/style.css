@@ -5,6 +5,11 @@
   --ink: #1c1b18;
   --ink-soft: #5a564c;
   --accent: #b3402e;
+  /* The board is always paper-light; Gradio's ".prose *" rule sets
+     color: var(--body-text-color), which flips to white in browser dark
+     mode, so pin the var to ink here. No backticks in this file: Gradio
+     evals css_template inside a JS template literal. */
+  --body-text-color: var(--ink);
   position: relative;
   width: 100%;
   height: 100vh;
