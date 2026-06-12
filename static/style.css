@@ -64,17 +64,52 @@
   transform: rotate(-2deg);
 }
 
-.sq-target {
+.sq-targets {
   font-family: "Caveat", cursive;
-  font-size: 34px;
+  font-size: 28px;
   font-weight: 700;
+  color: var(--ink-soft);
 }
-.sq-target-word {
+.sq-target-list {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-left: 6px;
+}
+.sq-target-item {
+  position: relative;
   display: inline-block;
-  padding: 0 14px 2px;
+  padding: 0 12px 2px;
   border: 2.5px solid var(--ink);
   border-radius: 255px 25px 225px 25px / 25px 225px 25px 255px;
-  transform: rotate(-1.5deg);
+  color: var(--ink);
+  transform: rotate(var(--tilt, -1.5deg));
+}
+/* checked: fade the word, strike it through, green ✓ over the corner */
+.sq-target-item.sq-checked {
+  color: var(--ink-soft);
+  border-color: var(--ink-soft);
+  opacity: 0.65;
+}
+.sq-target-item.sq-checked::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  right: 7px;
+  top: 52%;
+  height: 2.5px;
+  background: var(--ink-soft);
+  transform: rotate(-4deg);
+}
+.sq-target-check {
+  position: absolute;
+  top: -14px;
+  right: -10px;
+  font-size: 30px;
+  font-weight: 700;
+  color: #2c6e3f;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* context window: a labelled "N/budget" counter */

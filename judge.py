@@ -98,7 +98,7 @@ def judge(payload: dict) -> dict:
     one JSON argument through to server functions.
     """
     words = payload["words"]
-    target = payload["target"]
+    targets = payload["targets"]  # still-unchecked emotions; any of them wins
     labels = payload["labels"]
     if not words:
         return {
@@ -124,5 +124,5 @@ def judge(payload: dict) -> dict:
         "sentence": sentence,
         "probs": probs,
         "winner": winner,
-        "verdict": "win" if winner == target else "lose",
+        "verdict": "win" if winner in targets else "lose",
     }

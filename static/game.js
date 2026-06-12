@@ -4,7 +4,7 @@
 (async () => {
   const THREE = await import("https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js");
 
-  const level = props.value; // { grid, start, target, budget, labels }
+  const level = props.value; // { grid, start, targets, budget, labels }
   const ROWS = level.grid.length;
   const COLS = level.grid[0].length;
   const root = element.querySelector(".sq-root");
@@ -14,8 +14,37 @@
   const INK_SOFT = "#5a564c";
 
   // ---- HUD ----
+  // The targets checklist: every emotion to collect. Checks persist across
+  // rounds ("hop again" keeps them), so the meta-game is collecting all four.
+  const targetListEl = element.querySelector(".sq-target-list");
+  const checked = new Set();
+  const targetItems = {};
+  for (const label of level.targets) {
+    const item = document.createElement("span");
+    item.className = "sq-target-item";
+    item.style.setProperty("--tilt", `${(Math.random() * 4 - 2.5).toFixed(1)}deg`);
+    item.appendChild(document.createTextNode(label));
+    const check = document.createElement("span");
+    check.className = "sq-target-check";
+    check.textContent = "✓";
+    item.appendChild(check);
+    targetListEl.appendChild(item);
+    targetItems[label] = item;
+  }
+  const remainingTargets = () => level.targets.filter((t) => !checked.has(t));
+
+  function checkOff(label) {
+    checked.add(label);
+    const item = targetItems[label];
+    item.classList.add("sq-checked");
+    gsap.fromTo(
+      item.querySelector(".sq-target-check"),
+      { opacity: 0, scale: 2.6, rotation: -24 },
+      { opacity: 1, scale: 1, rotation: -8, duration: 0.3, ease: "power3.in" }
+    );
+  }
+
   // The context window: a plain "N/budget" counter that ticks up each hop.
-  element.querySelector(".sq-target-word").textContent = level.target;
   const countEl = element.querySelector(".sq-context-count");
   const usedEl = element.querySelector(".sq-ctx-used");
   element.querySelector(".sq-ctx-cap").textContent = level.budget;
@@ -781,7 +810,7 @@
 
     let res;
     try {
-      res = await server.judge({ words, target: level.target, labels: level.labels });
+      res = await server.judge({ words, targets: remainingTargets(), labels: level.labels });
     } catch (err) {
       res = { ok: false, error: String(err) };
     }
@@ -854,7 +883,7 @@
     const fills = [];
     for (const [label, p] of entries) {
       const row = document.createElement("div");
-      row.className = "sq-bar-row" + (label === level.target ? " sq-bar-target" : "");
+      row.className = "sq-bar-row" + (checked.has(label) ? "" : " sq-bar-target");
       const name = document.createElement("span");
       name.className = "sq-bar-label";
       name.textContent = label;
@@ -873,7 +902,11 @@
 
     retryBtn.classList.add("sq-hidden");
     againBtn.classList.remove("sq-hidden");
-    stampEl.textContent = res.verdict === "win" ? `${res.winner}!` : `${res.winner}.`;
+    // a repeat of an already-checked emotion isn't a win — say so on the stamp
+    stampEl.textContent =
+      res.verdict === "win" ? `${res.winner}!`
+      : checked.has(res.winner) ? `${res.winner}, again.`
+      : `${res.winner}.`;
     stampEl.classList.toggle("sq-win", res.verdict === "win");
     stampEl.style.opacity = 0;
 
@@ -893,7 +926,10 @@
       { opacity: 0, scale: 3, rotation: 24 },
       {
         opacity: 1, scale: 1, rotation: 8, duration: 0.3, ease: "power3.in",
-        onComplete: () => sfx.stamp(res.verdict === "win"),
+        onComplete: () => {
+          sfx.stamp(res.verdict === "win");
+          if (res.verdict === "win") checkOff(res.winner);
+        },
       },
       ">-0.1"
     ).to(cardEl, { x: "+=5", yoyo: true, repeat: 3, duration: 0.04 }, ">"); // thump
@@ -915,7 +951,9 @@
     pos = [...level.start];
     [...chipsEl.querySelectorAll(".sq-chip:not(.sq-chip-bos)")].forEach((c) => c.remove());
     hud.reset();
-    hintEl.textContent = "arrow keys / WASD to hop";
+    hintEl.textContent = remainingTargets().length
+      ? "arrow keys / WASD to hop"
+      : "all targets collected! free hopping";
     gsap.to(hintEl, { opacity: 1, duration: 0.4 });
 
     // poof back to <bos>
