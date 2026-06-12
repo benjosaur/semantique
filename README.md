@@ -20,14 +20,15 @@ tags:
 **A prompt-hopping puzzle game.** Hop your doodle across a grid of word tiles
 with the arrow keys. Every tile you land on appends its word to your prompt —
 and burns one slot of your context window. Reach `<eos>` and a small open LLM
-judges what emotion your sentence expresses. Hit the target emotion to win.
+judges what emotion your sentence expresses. Check off every target emotion
+on the list to collect them all.
 
 The judge uses **structured output via logprob filtering**: one
 chat-completion call with `max_tokens=1`, the next-token distribution is
 masked to the allowed emotion labels and softmax-renormalized — constrained
 decoding made visible as the verdict card's probability bars.
 
-> Try it: the target is **happy**. `<bos> → not → sad → <eos>` works.
+> Try it: for **happy**, `<bos> → not → sad → <eos>` works.
 > So does `great → !`. The geometry is the puzzle — word order is path order.
 
 Built for the **Build Small Hackathon** (Thousand Token Wood track).
