@@ -30,7 +30,7 @@ def walk(path):
 def test_grid_shape_and_special_tiles():
     assert len(GRID) == 4 and all(len(row) == 4 for row in GRID)
     assert pos_of("<bos>") == tuple(LEVEL["start"])
-    assert LEVEL["target"] in LEVEL["labels"]
+    assert LEVEL["targets"] and all(t in LEVEL["labels"] for t in LEVEL["targets"])
 
 
 def test_quick_win_path():
