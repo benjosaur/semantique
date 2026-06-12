@@ -105,12 +105,12 @@
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  top: 62px;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 12px 28px 18px;
+  padding: 6px 28px 0;
   font-size: 22px;
   z-index: 2;
 }
@@ -146,7 +146,7 @@
 
 .sq-hint {
   position: absolute;
-  bottom: 64px;
+  bottom: 18px;
   left: 0;
   right: 0;
   text-align: center;
