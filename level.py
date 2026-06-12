@@ -14,7 +14,7 @@ LEVEL = {
         ["again", "?", "angry", "disturb"],
     ],
     "start": [1, 1],  # row, col of <bos>
-    "target": "happy",
+    "targets": ["happy", "sad", "angry", "scared"],  # collect them all
     "budget": 10,
     "labels": ["happy", "sad", "angry", "scared"],
 }
