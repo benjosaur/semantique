@@ -252,47 +252,6 @@
   pointer-events: none;
 }
 
-/* ---- level nav (hand-drawn arrows) ---- */
-
-.sq-nav {
-  position: absolute;
-  bottom: 16px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 14px 6px;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  font-family: "Caveat", cursive;
-  font-size: 26px;
-  font-weight: 700;
-  color: var(--ink-soft);
-  z-index: 2;
-}
-.sq-nav-back {
-  left: 22px;
-  transform: rotate(-1.5deg);
-}
-.sq-nav-next {
-  right: 22px;
-  transform: rotate(1.5deg);
-}
-.sq-nav:hover {
-  color: var(--ink);
-}
-.sq-nav-label {
-  padding-bottom: 2px;
-}
-.sq-nav-arrow {
-  display: block;
-  width: 58px;
-  height: 30px;
-}
-.sq-nav-arrow canvas {
-  display: block;
-}
-
 /* ---- verdict overlay ---- */
 
 .sq-overlay {
