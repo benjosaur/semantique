@@ -73,6 +73,7 @@
 
   const INK = "#1c1b18";
   const INK_SOFT = "#5a564c";
+  const ACCENT = "#b3402e";
 
   // A grid cell appends its word unless it's structural (start / blank / ⏎).
   const appendsWord = (w) => w && w !== "start" && w !== "⏎";
@@ -107,7 +108,8 @@
     const item = targetItems[label];
     item.classList.add("sq-checked"); // fades + strikes the word through
     gsap.fromTo(item, { scale: 1.3 }, { scale: 1, duration: 0.3, ease: "back.out(2)" });
-    updateNav(); // first check on the home board reveals the "next" arrow
+    // collecting the last target completes the board — reveal the forward swap tile
+    if (remainingTargets().length === 0) revealForwardSwap();
   }
 
   // The hop counter: a plain "N/budget" counter that ticks up each hop.
@@ -182,12 +184,12 @@
   // crisp on hidpi screens (all drawing keeps using logical coordinates).
   const TEX_SCALE = Math.min(window.devicePixelRatio || 1, 2);
 
-  function drawTileCanvas(ctx, word) {
+  // The bare keycap face: opaque paper base + the wobbly double-stroke rim that
+  // doubles as the 3D silhouette (the extruded body follows this outline).
+  // `special` softens the ink (start / ⏎ / swap); `dashed` adds the "press me"
+  // dashed rim (the submit and swap tiles — the start tile stays solid).
+  function drawKeycapBase(ctx, special, dashed) {
     ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
-    const special = word === "start" || word === "⏎";
-    // only the submit tile keeps a dashed rim as a "press me" cue; the start
-    // tile reads as a normal solid keycap.
-    const dashed = word === "⏎";
     // opaque paper base — the keycap body is the rounded outline itself now,
     // so this whole canvas IS the cap face (extruded silhouette clips it)
     ctx.fillStyle = "#faf8f2";
@@ -214,6 +216,13 @@
     ctx.strokeStyle = special ? "rgba(90,86,76,0.35)" : "rgba(28,27,24,0.35)";
     ctx.lineWidth = 4;
     ctx.stroke();
+  }
+
+  function drawTileCanvas(ctx, word) {
+    const special = word === "start" || word === "⏎";
+    // only the submit tile keeps a dashed rim as a "press me" cue; the start
+    // tile reads as a normal solid keycap.
+    drawKeycapBase(ctx, special, word === "⏎");
 
     // the word — start and empty tiles are blank squares, so they stay wordless
     const blank = !word || word === "start";
@@ -224,6 +233,32 @@
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(word, TILE_PX / 2 + rand(-2, 2), TILE_PX / 2 + rand(-1, 3));
+    }
+  }
+
+  // A board-swap keycap: a special dashed cap stamped with a big accent arrow
+  // (→, to the next board) and the destination board's title below.
+  function drawSwapTileCanvas(ctx, dir, label) {
+    drawKeycapBase(ctx, true, true);
+    const cx = TILE_PX / 2;
+    const ay = 150; // arrow centre line
+    const half = 78;
+    const tail = cx - dir * half;
+    const tip = cx + dir * half;
+    ctx.strokeStyle = ACCENT;
+    ctx.lineJoin = ctx.lineCap = "round";
+    ctx.lineWidth = 20;
+    wobblyLine(ctx, tail, ay, tip, ay, 4); ctx.stroke(); // shaft
+    wobblyLine(ctx, tip, ay, tip - dir * 58, ay - 48, 3); ctx.stroke(); // upper barb
+    wobblyLine(ctx, tip, ay, tip - dir * 58, ay + 48, 3); ctx.stroke(); // lower barb
+
+    if (label) {
+      ctx.fillStyle = INK;
+      const size = label.length > 7 ? 56 : 64;
+      ctx.font = `400 ${size}px "Patrick Hand"`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, cx + rand(-2, 2), 268 + rand(-1, 2));
     }
   }
 
@@ -375,6 +410,73 @@
     }
   }
   const tile = (r, c) => tiles[r * COLS + c];
+
+  // ---- board-swap tiles ----
+  // Lone keycaps just off the grid edge: hop onto one and it loads another
+  // board. They live OUTSIDE the rectangular `tiles` array (so the r*COLS+c
+  // index math is untouched) at virtual cells (startRow, COLS) / (startRow, -1),
+  // pushed an extra SWAP_GAP out so they read as a tile "by itself".
+  let swapTiles = []; // { mesh, ctx, texture, row, col, targetId, dir, active, x, z, label }
+  const SWAP_GAP = 0.55;
+  const swapTileAt = (r, c) =>
+    swapTiles.find((s) => s.active && s.row === r && s.col === c) || null;
+
+  function addSwapTile(row, col, targetId, dir, active) {
+    const label = LEVELS[targetId].title;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = TILE_PX * TEX_SCALE;
+    const ctx = canvas.getContext("2d");
+    drawSwapTileCanvas(ctx, dir, label);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.anisotropy = maxAniso;
+    texture.colorSpace = THREE.SRGBColorSpace;
+
+    const mesh = new THREE.Mesh(tileGeometry, [
+      new THREE.MeshBasicMaterial({ map: texture, transparent: false }),
+      sideMaterial,
+    ]);
+    const base = tileAt(row, col);
+    const x = base.x + dir * SWAP_GAP;
+    const z = base.z;
+    mesh.position.set(x, -TILE_DEPTH / 2, z);
+    mesh.visible = active;
+    board.add(mesh);
+    swapTiles.push({ mesh, ctx, texture, row, col, targetId, dir, active, x, z, label });
+  }
+
+  // (Re)build the swap tile for the active board: a single forward tile, shown
+  // once every target here is collected, that progresses to the next board.
+  // Progression is one-way — there is no back tile. Then recentre the board so
+  // the grid plus its lone side tile sit balanced under the camera.
+  function buildSwapTiles() {
+    for (const s of swapTiles) {
+      board.remove(s.mesh);
+      s.texture.dispose();
+      s.mesh.material[0].dispose(); // per-tile cap material (side is shared)
+    }
+    swapTiles = [];
+    const i = ORDER.indexOf(level.id);
+    const hasNext = i < ORDER.length - 1;
+    if (hasNext) {
+      addSwapTile(level.start[0], COLS, ORDER[i + 1], +1, remainingTargets().length === 0);
+    }
+    board.position.x = hasNext ? -(SPACING + SWAP_GAP) / 2 : 0;
+  }
+
+  // Board complete: poof the forward swap tile in so the doodle can hop onward.
+  function revealForwardSwap() {
+    const s = swapTiles.find((t) => t.dir > 0 && !t.active);
+    if (!s) return;
+    s.active = true;
+    s.mesh.visible = true;
+    sfx.pop();
+    gsap.fromTo(
+      s.mesh.scale,
+      { x: 0, y: 0, z: 0 },
+      { x: 1, y: 1, z: 1, duration: 0.45, ease: "back.out(2)" }
+    );
+  }
 
   // Depress a keycap and let it spring back, like the doodle typed it.
   function pressTile(t) {
@@ -534,7 +636,7 @@
     ctx.stroke();
 
     // one flat accent detail: a little scarf at the neck
-    ctx.strokeStyle = "#b3402e";
+    ctx.strokeStyle = ACCENT;
     ctx.lineWidth = 8;
     wobblyLine(ctx, 106, 126, 150, 126, 2); ctx.stroke();
     ctx.strokeStyle = INK;
@@ -628,7 +730,8 @@
   charMesh.renderOrder = 1; // only transparent mesh left — draw after keycaps
   const charTilt = { z: 0 }; // cartoon lean, composed into the billboard quat
   const charPosFor = (r, c) => {
-    const { x, z } = tileAt(r, c);
+    const s = swapTileAt(r, c); // swap tiles sit at a gapped world position
+    const { x, z } = s ? s : tileAt(r, c);
     return { x, z: z + CHAR_Z_OFF };
   };
   // charGroup carries the grid position; charMesh.position.y is the jump arc.
@@ -651,11 +754,14 @@
       drawTileCanvas(t.ctx, t.word);
       t.texture.needsUpdate = true;
     }
+    for (const s of swapTiles) {
+      drawSwapTileCanvas(s.ctx, s.dir, s.label);
+      s.texture.needsUpdate = true;
+    }
     drawTileSideCanvas(sideCtx);
     sideTexture.needsUpdate = true;
     drawCharCanvas(charCtx, charPose);
     charTexture.needsUpdate = true;
-    drawNavArrows();
     syncAudioUI();
   }, 340);
 
@@ -868,10 +974,9 @@
   }
 
   // ---- audio toggles: hand-drawn ♫ + speaker doodles in the top-right ----
-  // Same trick as the nav arrows: bake each icon to a little canvas with the
-  // wobbly-ink helpers and let the boil re-jitter it. A red slash = muted.
+  // Bake each icon to a little canvas with the wobbly-ink helpers and let the
+  // boil re-jitter it, same as the keycaps. A red slash = muted.
   const ICON = 30; // logical canvas units (square)
-  const ACCENT = "#b3402e";
 
   function makeIconCanvas(host) {
     const cv = document.createElement("canvas");
@@ -1131,6 +1236,13 @@
 
   function land(r, c) {
     pos = [r, c];
+
+    // a swap tile hops you to another board — costs no budget, adds no word.
+    const swap = swapTileAt(r, c);
+    if (swap) {
+      pressTile(swap);
+      return loadLevel(swap.targetId);
+    }
     used += 1;
 
     // landed keycap press
@@ -1348,7 +1460,7 @@
     gsap.to(hintEl, { opacity: 1, duration: 0.4 });
   }
 
-  // Poof the doodle back onto its start tile (used by "hop again" and switches).
+  // Poof the doodle back onto its start tile (used by "hop again").
   function poofToStart() {
     const home = charPosFor(level.start[0], level.start[1]);
     gsap.timeline({ onComplete: () => (state = "idle") })
@@ -1362,6 +1474,49 @@
       })
       .add(() => sfx.pop()) // poof back in
       .to(charMesh.scale, { x: 1, y: 1, duration: 0.28, ease: "back.out(2.5)" });
+  }
+
+  // Board intro / progression: transport the doodle straight onto the new
+  // board's start tile (the centre on most boards), then rain the other keycaps
+  // down from the sky around it, staggered by distance — the level assembles
+  // itself around the doodle, then play begins.
+  const DROP_H = 4.2; // how high above the board the keycaps start
+  function dropInBoard() {
+    const [sr, sc] = level.start;
+    const rest = -TILE_DEPTH / 2;
+
+    // the doodle materialises on the anchor tile (which stays put)
+    const home = charPosFor(sr, sc);
+    charMesh.scale.x = charMesh.scale.y = 0;
+    charGroup.position.set(home.x, CHAR_STANDOFF, home.z);
+    charMesh.position.y = 0;
+    charTilt.z = 0;
+    charMesh.material.opacity = 1;
+    setPose("idle");
+
+    // every other keycap falls in around it, nearest first
+    let last = 0.6;
+    for (const t of tiles) {
+      if (t.row === sr && t.col === sc) continue; // anchor stays put
+      const dist = Math.hypot(t.row - sr, t.col - sc);
+      const delay = 0.12 + dist * 0.075;
+      last = Math.max(last, delay + 0.55);
+      gsap.fromTo(
+        t.mesh.position,
+        { y: rest + DROP_H },
+        {
+          y: rest, duration: 0.55, ease: "bounce.out", delay,
+          onComplete: () => thud({ dur: 0.035, vol: 0.12, freq: 1100 }), // soft patter
+        }
+      );
+    }
+
+    // pop the doodle in a beat later, as if it arrived through the swap tile
+    gsap.timeline({ delay: 0.12 })
+      .add(() => sfx.pop())
+      .to(charMesh.scale, { x: 1, y: 1, duration: 0.3, ease: "back.out(2.5)" });
+
+    gsap.delayedCall(last, () => (state = "idle")); // play begins once it settles
   }
 
   function reset() {
@@ -1393,6 +1548,7 @@
     if (used === 0) gsap.to(hintEl, { opacity: 0.35, duration: 0.6 });
     const nr = pos[0] + dir[0];
     const nc = pos[1] + dir[1];
+    if (swapTileAt(nr, nc)) return hopTo(nr, nc); // hop off the edge onto a swap tile
     if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) return bonk();
     hopTo(nr, nc);
   }
@@ -1441,8 +1597,10 @@
   // ---- camera framing ----
   let viewUnits = 7.0; // world units visible vertically; sized to the board by reframe()
   function reframe() {
-    const span = (Math.max(ROWS, COLS) - 1) * SPACING + TILE_SIZE;
-    viewUnits = span + 1.2; // a little margin around the board
+    // active swap tiles widen the board by one gapped column on each side they're on
+    const horiz = (COLS - 1) * SPACING + TILE_SIZE + swapTiles.length * (SPACING + SWAP_GAP);
+    const vert = (ROWS - 1) * SPACING + TILE_SIZE;
+    viewUnits = Math.max(horiz, vert) + 1.2; // a little margin around the board
     resize();
   }
   function resize() {
@@ -1479,71 +1637,7 @@
     renderer.render(scene, camera);
   });
 
-  // ---- level nav: hand-drawn arrows that walk between boards ----
-  const backBtn = element.querySelector(".sq-nav-back");
-  const nextBtn = element.querySelector(".sq-nav-next");
-  const backLabelEl = backBtn.querySelector(".sq-nav-label");
-  const nextLabelEl = nextBtn.querySelector(".sq-nav-label");
-
-  // Each arrow is an ink doodle baked to a small canvas, re-jittered by the boil.
-  function makeArrowCanvas(host) {
-    const cv = document.createElement("canvas");
-    cv.width = 58 * TEX_SCALE;
-    cv.height = 30 * TEX_SCALE;
-    host.appendChild(cv);
-    return cv;
-  }
-  function drawArrow(cv, dir) {
-    const ctx = cv.getContext("2d");
-    ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
-    ctx.clearRect(0, 0, 58, 30);
-    ctx.lineJoin = ctx.lineCap = "round";
-    ctx.strokeStyle = INK_SOFT;
-    ctx.lineWidth = 3.5;
-    const y = 15;
-    const tail = dir > 0 ? 6 : 52;
-    const tip = dir > 0 ? 50 : 8;
-    wobblyLine(ctx, tail, y, tip, y, 1.6); ctx.stroke(); // shaft
-    wobblyLine(ctx, tip, y, tip - dir * 12, y - 8, 1.2); ctx.stroke(); // head, upper barb
-    wobblyLine(ctx, tip, y, tip - dir * 12, y + 8, 1.2); ctx.stroke(); // head, lower barb
-  }
-  const backArrow = makeArrowCanvas(backBtn.querySelector(".sq-nav-arrow"));
-  const nextArrow = makeArrowCanvas(nextBtn.querySelector(".sq-nav-arrow"));
-  function drawNavArrows() {
-    if (!backArrow) return;
-    drawArrow(backArrow, -1);
-    drawArrow(nextArrow, 1);
-  }
-  drawNavArrows();
-
-  function revealNav(btn, show) {
-    const wasHidden = btn.classList.contains("sq-hidden");
-    if (!show) return btn.classList.add("sq-hidden");
-    btn.classList.remove("sq-hidden");
-    if (wasHidden) {
-      gsap.fromTo(btn, { autoAlpha: 0, y: 10 }, { autoAlpha: 1, y: 0, duration: 0.4, ease: "back.out(1.8)" });
-    }
-  }
-  function updateNav() {
-    const i = ORDER.indexOf(level.id);
-    const hasBack = i > 0;
-    // The forward arrow stays hidden until a target is collected on this board.
-    const hasNext = i < ORDER.length - 1 && checkedOnThisLevel().size > 0;
-    if (hasBack) backLabelEl.textContent = LEVELS[ORDER[i - 1]].title;
-    if (hasNext) nextLabelEl.textContent = LEVELS[ORDER[i + 1]].title;
-    revealNav(backBtn, hasBack);
-    revealNav(nextBtn, hasNext);
-  }
-  backBtn.addEventListener("click", () => {
-    const i = ORDER.indexOf(level.id);
-    if (i > 0) { sfx.click(); loadLevel(ORDER[i - 1]); }
-  });
-  nextBtn.addEventListener("click", () => {
-    const i = ORDER.indexOf(level.id);
-    if (i < ORDER.length - 1) { sfx.click(); loadLevel(ORDER[i + 1]); }
-  });
-
-  // Swap the active board: rebuild tiles + checklist, reframe, poof in.
+  // Swap the active board: rebuild tiles + checklist + swap tiles, reframe, poof in.
   function loadLevel(id) {
     gsap.killTweensOf([charMesh.scale, charMesh.position, charGroup.position, charTilt, charMesh.material]);
     overlayEl.classList.add("sq-hidden");
@@ -1552,10 +1646,10 @@
     state = "hopping"; // block input until the poof lands (then -> idle)
     buildTiles();
     buildTargets();
+    buildSwapTiles();
     resetGameState();
     reframe();
-    updateNav();
-    poofToStart();
+    dropInBoard();
   }
 
   loadLevel(data.home);
