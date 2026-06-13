@@ -638,35 +638,43 @@
     drawCharCanvas(charCtx, charPose);
     charTexture.needsUpdate = true;
     drawNavArrows();
-    drawAudioIcons();
+    syncAudioUI();
   }, 340);
 
   // ---- sounds: a tiny Web Audio sketch-synth ----
   // Every cue is an oscillator doodle or a pinch of filtered noise — no
   // samples to load, and the bleeps match the hand-drawn look.
 
-  // Music + sfx each get their own toggle, so they ride independent buses off
-  // the master. Preferences (both default on) persist in localStorage; read
-  // them now so the buses come up at the right level when the context is built.
+  // Music and sfx each carry a volume (0..1) and ride their own bus off the
+  // master, so the in-game mixer can level/mute them independently. Levels
+  // persist in localStorage; read them now so the buses come up at the right
+  // level when the context is built.
   const AUDIO_PREF_KEY = "sq-audio";
+  const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
   function loadAudioPrefs() {
     try { return JSON.parse(localStorage.getItem(AUDIO_PREF_KEY)) || {}; }
     catch (e) { return {}; }
   }
   function saveAudioPrefs() {
-    try {
-      localStorage.setItem(AUDIO_PREF_KEY, JSON.stringify({ music: musicOn, sfx: sfxOn }));
-    } catch (e) { /* storage may be partitioned inside the HF iframe — ignore */ }
+    try { localStorage.setItem(AUDIO_PREF_KEY, JSON.stringify({ musicVol, sfxVol })); }
+    catch (e) { /* storage may be partitioned inside the HF iframe — ignore */ }
   }
-  const _audioPrefs = loadAudioPrefs();
-  let musicOn = _audioPrefs.music !== false; // default on
-  let sfxOn = _audioPrefs.sfx !== false; // default on
-  const MUSIC_VOL = 0.6; // music bus level when on (multiplied by the 0.4 master)
+  const _ap = loadAudioPrefs();
+  // migrate the old on/off booleans ({music,sfx}) to volumes when present
+  let musicVol = typeof _ap.musicVol === "number" ? clamp01(_ap.musicVol) : (_ap.music === false ? 0 : 1);
+  let sfxVol = typeof _ap.sfxVol === "number" ? clamp01(_ap.sfxVol) : (_ap.sfx === false ? 0 : 1);
+  let musicPrev = musicVol || 1; // level to restore when un-muting
+  let sfxPrev = sfxVol || 1;
+  // perceived loudness is ~quadratic, so square the slider before it hits gain
+  const MUSIC_MAX = 0.6, SFX_MAX = 1.0; // bus level at full slider (× 0.4 master)
+  const taper = (v) => v * v;
+  const musicBusGain = () => MUSIC_MAX * taper(musicVol);
+  const sfxBusGain = () => SFX_MAX * taper(sfxVol);
 
   let ac = null;
   let masterGain = null;
-  let sfxGain = null; // every bleep routes here; the speaker toggle mutes it
-  let musicGain = null; // the background loop routes here; the ♫ toggle mutes it
+  let sfxGain = null; // every bleep routes here; the mixer levels it
+  let musicGain = null; // the background loop routes here
   function audio() {
     if (!ac) {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -676,10 +684,10 @@
       masterGain.gain.value = 0.4;
       masterGain.connect(ac.destination);
       sfxGain = ac.createGain();
-      sfxGain.gain.value = sfxOn ? 1 : 0;
+      sfxGain.gain.value = sfxBusGain();
       sfxGain.connect(masterGain);
       musicGain = ac.createGain();
-      musicGain.gain.value = musicOn ? MUSIC_VOL : 0;
+      musicGain.gain.value = musicBusGain();
       musicGain.connect(masterGain);
     }
     if (ac.state === "suspended") ac.resume();
@@ -689,7 +697,7 @@
   // the context on real gestures — these also resume after suspension, and kick
   // off the music loop the first time (browsers block audio until a gesture).
   function unlockAudio() {
-    if (audio() && musicOn) startMusic();
+    if (audio() && musicVol > 0) startMusic();
   }
   document.addEventListener("keydown", unlockAudio);
   document.addEventListener("pointerdown", unlockAudio);
@@ -912,40 +920,126 @@
     ctx.globalAlpha = 1;
   }
 
+  const audioCluster = element.querySelector(".sq-audio");
   const musicBtn = element.querySelector(".sq-music-btn");
   const sfxBtn = element.querySelector(".sq-sfx-btn");
+  const popEl = element.querySelector(".sq-audio-pop");
+  const volMusicBtn = element.querySelector(".sq-vol-music");
+  const volSfxBtn = element.querySelector(".sq-vol-sfx");
   const musicIconCtx = makeIconCanvas(musicBtn).getContext("2d");
   const sfxIconCtx = makeIconCanvas(sfxBtn).getContext("2d");
+  const volMusicCtx = makeIconCanvas(volMusicBtn).getContext("2d");
+  const volSfxCtx = makeIconCanvas(volSfxBtn).getContext("2d");
 
-  function drawAudioIcons() {
+  // ---- volume sliders: a wobbly ink rule with a filled level + draggable nib ----
+  const SLIDER_W = 120, SLIDER_H = 26, SLIDER_PAD = 11;
+  function drawSlider(ctx, val) {
+    ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
+    ctx.clearRect(0, 0, SLIDER_W, SLIDER_H);
+    ctx.lineJoin = ctx.lineCap = "round";
+    const y = SLIDER_H / 2, x0 = SLIDER_PAD, x1 = SLIDER_W - SLIDER_PAD;
+    const nx = x0 + clamp01(val) * (x1 - x0);
+    ctx.globalAlpha = 0.5; ctx.strokeStyle = INK_SOFT; ctx.lineWidth = 3; // faint full track
+    wobblyLine(ctx, x0, y, x1, y, 1.0); ctx.stroke();
+    ctx.globalAlpha = 1;
+    if (nx > x0 + 0.5) { ctx.strokeStyle = INK; ctx.lineWidth = 4.5; wobblyLine(ctx, x0, y, nx, y, 0.9); ctx.stroke(); } // inked level
+    wobblyCircle(ctx, nx, y, 6.5, 1.1); // the nib
+    ctx.fillStyle = "rgba(255,253,247,0.95)"; ctx.fill();
+    ctx.strokeStyle = INK; ctx.lineWidth = 3.5; ctx.stroke();
+  }
+  function setupSlider(el, ch) {
+    const cv = document.createElement("canvas");
+    cv.width = SLIDER_W * TEX_SCALE; cv.height = SLIDER_H * TEX_SCALE;
+    el.appendChild(cv);
+    let dragging = false;
+    // .sq-slider is exactly SLIDER_W css px, so clientX maps 1:1 to logical units
+    const valAt = (e) => clamp01((e.clientX - el.getBoundingClientRect().left - SLIDER_PAD) / (SLIDER_W - 2 * SLIDER_PAD));
+    const apply = (e) => (ch === "music" ? setMusicVol(valAt(e), true) : setSfxVol(valAt(e), true));
+    el.addEventListener("pointerdown", (e) => { dragging = true; el.setPointerCapture(e.pointerId); audio(); apply(e); });
+    el.addEventListener("pointermove", (e) => { if (dragging) apply(e); });
+    el.addEventListener("pointerup", () => { if (dragging) { dragging = false; saveAudioPrefs(); } });
+    el.addEventListener("pointercancel", () => (dragging = false));
+    return cv.getContext("2d");
+  }
+  const musicSliderCtx = setupSlider(element.querySelector('.sq-slider[data-ch="music"]'), "music");
+  const sfxSliderCtx = setupSlider(element.querySelector('.sq-slider[data-ch="sfx"]'), "sfx");
+
+  // redraw the whole audio UI: bar icons always (slash when a channel is at 0),
+  // popover icons + sliders only while it's open. Re-jittered by the boil.
+  function syncAudioUI() {
     if (!musicIconCtx) return;
-    drawMusicIcon(musicIconCtx, musicOn);
-    drawSpeakerIcon(sfxIconCtx, sfxOn);
-  }
-  function syncAudioButtons() {
-    musicBtn.setAttribute("aria-pressed", String(musicOn));
-    sfxBtn.setAttribute("aria-pressed", String(sfxOn));
-    drawAudioIcons();
+    const mOn = musicVol > 0, sOn = sfxVol > 0;
+    drawMusicIcon(musicIconCtx, mOn);
+    drawSpeakerIcon(sfxIconCtx, sOn);
+    if (popOpen) {
+      drawMusicIcon(volMusicCtx, mOn);
+      drawSpeakerIcon(volSfxCtx, sOn);
+      drawSlider(musicSliderCtx, musicVol);
+      drawSlider(sfxSliderCtx, sfxVol);
+      volMusicBtn.setAttribute("aria-pressed", String(!mOn));
+      volSfxBtn.setAttribute("aria-pressed", String(!sOn));
+    }
   }
 
-  musicBtn.addEventListener("click", () => {
-    musicOn = !musicOn;
+  // ---- volume + mute state ----
+  function setMusicVol(v, live) {
+    musicVol = clamp01(v);
+    if (musicVol > 0) musicPrev = musicVol;
     audio();
-    if (musicGain) gsap.to(musicGain.gain, { value: musicOn ? MUSIC_VOL : 0, duration: 0.4, overwrite: true });
-    musicOn ? startMusic() : stopMusic();
-    sfx.click();
-    syncAudioButtons();
-    saveAudioPrefs();
-  });
-  sfxBtn.addEventListener("click", () => {
-    sfxOn = !sfxOn;
+    // snap the gain while dragging (responsive), ramp it on mute/unmute (smooth)
+    if (musicGain) { const g = musicBusGain(); live ? (musicGain.gain.value = g) : gsap.to(musicGain.gain, { value: g, duration: 0.18, overwrite: true }); }
+    musicVol > 0 ? startMusic() : stopMusic();
+    syncAudioUI();
+  }
+  function setSfxVol(v, live) {
+    sfxVol = clamp01(v);
+    if (sfxVol > 0) sfxPrev = sfxVol;
     audio();
-    if (sfxGain) gsap.to(sfxGain.gain, { value: sfxOn ? 1 : 0, duration: 0.25, overwrite: true });
-    if (sfxOn) sfx.click(); // a confirming tap, only when switching on
-    syncAudioButtons();
+    if (sfxGain) { const g = sfxBusGain(); live ? (sfxGain.gain.value = g) : gsap.to(sfxGain.gain, { value: g, duration: 0.18, overwrite: true }); }
+    syncAudioUI();
+  }
+  function toggleMute(ch) {
+    if (ch === "music") musicVol > 0 ? setMusicVol(0, false) : setMusicVol(musicPrev || 1, false);
+    else sfxVol > 0 ? setSfxVol(0, false) : setSfxVol(sfxPrev || 1, false);
     saveAudioPrefs();
-  });
-  syncAudioButtons();
+  }
+
+  // ---- the mixer popover ----
+  let popOpen = false;
+  function openPop() {
+    popOpen = true;
+    popEl.classList.remove("sq-hidden");
+    musicBtn.setAttribute("aria-expanded", "true");
+    sfxBtn.setAttribute("aria-expanded", "true");
+    syncAudioUI();
+    gsap.fromTo(popEl,
+      { autoAlpha: 0, y: -6, scale: 0.96, rotation: -3 },
+      { autoAlpha: 1, y: 0, scale: 1, rotation: -1, duration: 0.22, ease: "back.out(1.7)" });
+  }
+  function closePop() {
+    if (!popOpen) return;
+    popOpen = false;
+    musicBtn.setAttribute("aria-expanded", "false");
+    sfxBtn.setAttribute("aria-expanded", "false");
+    gsap.to(popEl, {
+      autoAlpha: 0, y: -6, duration: 0.15,
+      onComplete: () => { popEl.classList.add("sq-hidden"); gsap.set(popEl, { clearProps: "opacity,transform,visibility" }); },
+    });
+  }
+  function togglePop() { popOpen ? closePop() : openPop(); }
+
+  // the bar icons now open the mixer; muting + levels live inside it
+  const onBarTap = () => { audio(); sfx.click(); togglePop(); };
+  musicBtn.addEventListener("click", onBarTap);
+  sfxBtn.addEventListener("click", onBarTap);
+  volMusicBtn.addEventListener("click", () => { toggleMute("music"); sfx.click(); });
+  volSfxBtn.addEventListener("click", () => { const was = sfxVol > 0; toggleMute("sfx"); if (!was) sfx.click(); });
+
+  // dismiss on an outside tap or Escape
+  document.addEventListener("pointerdown", (e) => { if (popOpen && !audioCluster.contains(e.target)) closePop(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePop(); });
+
+  syncAudioUI();
 
   // ---- game state ----
 
