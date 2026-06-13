@@ -78,7 +78,8 @@ BOARD_SENTENCES = [
 @pytest.mark.parametrize("sentence,target,should_win", BOARD_SENTENCES)
 def test_live_judge_on_board_sentences(sentence, target, should_win):
     from judge import score_labels
+    from levels import get_level
 
-    probs = renormalize(score_labels(sentence, LABELS))
+    probs = renormalize(score_labels(sentence, get_level("emotion").labels))
     winner = max(probs, key=probs.get)
     assert (winner == target) == should_win, f"{sentence!r} -> {probs}"

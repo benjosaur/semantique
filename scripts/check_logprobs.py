@@ -17,7 +17,7 @@ client = InferenceClient()
 resp = client.chat_completion(
     model=model,
     messages=[
-        {"role": "user", "content": 'One word — what emotion does this sentence express: "not sad"?'},
+        {"role": "user", "content": "not sad ="},  # the judge's "<sentence> =" prompt
     ],
     max_tokens=1,
     logprobs=True,
