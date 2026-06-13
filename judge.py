@@ -1,34 +1,30 @@
-"""Emotion judge: structured output via logprob filtering over an LLM API.
+"""Emotion judge: structured output via exact logprob filtering over a self-hosted LLM.
 
-One chat-completion call with max_tokens=1 and top_logprobs; the next-token
-distribution is masked to the allowed emotion labels and renormalized with a
-softmax — i.e. constrained decoding, enforced client-side.
+The model runs on a Modal GPU (see modal_judge.py). For one sentence we get the
+*exact* probability the model would answer with each emotion word — its full
+multi-token sequence scored by the model, not just whatever lands in an API's
+top-k. Those per-label logprobs are then masked to the allowed labels and
+renormalized with a softmax — constrained decoding, enforced client-side.
 
-Swapping to a local model later only requires reimplementing score_labels().
+`score_labels()` is the only seam to the model: it POSTs to the Modal endpoint.
+Set JUDGE_FAKE=1 for an offline stub (no GPU, no network).
 """
 
 import math
 import os
 
+import requests
 from dotenv import load_dotenv
-from huggingface_hub import InferenceClient
 
-load_dotenv()  # local dev: HF_TOKEN lives in .env (gitignored); Spaces use a secret
+load_dotenv()  # local dev: MODAL_* live in .env (gitignored); the Space uses secrets
 
-JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "Qwen/Qwen3-4B-Instruct-2507")
+# Deployed Modal web endpoint + a Modal proxy-auth token. See README "Run on Modal".
+MODAL_JUDGE_URL = os.environ.get("MODAL_JUDGE_URL", "")
+MODAL_KEY = os.environ.get("MODAL_KEY", "")
+MODAL_SECRET = os.environ.get("MODAL_SECRET", "")
 
-# Few-shot pairs pin the answer format to a single lowercase emotion word.
-FEW_SHOT = [
-    ("I just won the lottery!", "happy"),
-    ("My best friend moved away forever.", "sad"),
-    ("Stop touching my stuff!", "angry"),
-    ("Something is moving in the dark basement.", "scared"),
-]
-
-# Labels absent from the returned top-k get the min found logprob minus this.
-MISSING_LABEL_PENALTY = 5.0
-
-_client = InferenceClient()
+# Cold start may reload (and, the very first time, download) the model, so allow slack.
+REQUEST_TIMEOUT = 120
 
 
 def assemble_sentence(words: list[str]) -> str:
@@ -42,26 +38,6 @@ def assemble_sentence(words: list[str]) -> str:
     return out
 
 
-def extract_label_logprobs(top_logprobs: list, labels: list[str]) -> dict[str, float]:
-    """Collect each label's best logprob from top-k (token, logprob) entries.
-
-    Token strings are normalized (strip + lowercase) and matched if the label
-    starts with the token or vice versa, covering tokenizations like " happy",
-    "Happy", or a "hap" prefix piece. Missing labels get a floor.
-    """
-    found: dict[str, float] = {}
-    for entry in top_logprobs:
-        token = entry.token.strip().lower()
-        if not token:
-            continue
-        for label in labels:
-            if label.startswith(token) or token.startswith(label):
-                if entry.logprob > found.get(label, -math.inf):
-                    found[label] = entry.logprob
-    floor = (min(found.values()) if found else 0.0) - MISSING_LABEL_PENALTY
-    return {label: found.get(label, floor) for label in labels}
-
-
 def renormalize(label_logprobs: dict[str, float]) -> dict[str, float]:
     """Softmax over just the label logprobs (the 'filter and renormalize' step)."""
     m = max(label_logprobs.values())
@@ -71,24 +47,20 @@ def renormalize(label_logprobs: dict[str, float]) -> dict[str, float]:
 
 
 def score_labels(sentence: str, labels: list[str]) -> dict[str, float]:
-    """One API call -> per-label logprobs of the first answer token."""
-    messages = []
-    for example, emotion in FEW_SHOT:
-        messages.append({"role": "user", "content": f'What emotion does this sentence express, in one lowercase word: "{example}"'})
-        messages.append({"role": "assistant", "content": emotion})
-    messages.append({"role": "user", "content": f'What emotion does this sentence express, in one lowercase word: "{sentence}"'})
-
-    resp = _client.chat_completion(
-        model=JUDGE_MODEL,
-        messages=messages,
-        max_tokens=1,
-        logprobs=True,
-        top_logprobs=20,
+    """One call to the Modal GPU endpoint -> exact per-label logprobs."""
+    if not MODAL_JUDGE_URL:
+        raise RuntimeError("MODAL_JUDGE_URL is not set (deploy modal_judge.py, or use JUDGE_FAKE=1)")
+    headers = {}
+    if MODAL_KEY and MODAL_SECRET:  # Modal proxy auth
+        headers = {"Modal-Key": MODAL_KEY, "Modal-Secret": MODAL_SECRET}
+    resp = requests.post(
+        MODAL_JUDGE_URL,
+        json={"sentence": sentence, "labels": labels},
+        headers=headers,
+        timeout=REQUEST_TIMEOUT,
     )
-    content = resp.choices[0].logprobs.content
-    if not content:
-        raise RuntimeError(f"{JUDGE_MODEL} returned no logprobs")
-    return extract_label_logprobs(content[0].top_logprobs, labels)
+    resp.raise_for_status()
+    return resp.json()["logprobs"]
 
 
 def judge(payload: dict) -> dict:
@@ -110,7 +82,7 @@ def judge(payload: dict) -> dict:
         }
     sentence = assemble_sentence(words)
     try:
-        if os.environ.get("JUDGE_FAKE"):  # offline dev mode: no API call
+        if os.environ.get("JUDGE_FAKE"):  # offline dev mode: no GPU, no network
             fake = {label: -6.0 - i for i, label in enumerate(labels)}
             fake["happy" if ("great" in words or "not" in words) else "sad"] = -0.3
             probs = renormalize(fake)
