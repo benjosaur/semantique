@@ -39,7 +39,9 @@
 
 .sq-stage {
   position: absolute;
-  inset: 0;
+  /* Reserve the bottom band the hint line lives in: the board reframes into the
+     shorter stage, so tiles never render under "arrow keys / WASD to hop". */
+  inset: 0 0 calc(max(18px, env(safe-area-inset-bottom)) + 34px) 0;
 }
 .sq-stage canvas {
   display: block;
