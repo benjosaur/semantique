@@ -55,6 +55,7 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
+  gap: 22px;
   padding: max(18px, env(safe-area-inset-top)) 28px 0;
   pointer-events: none;
   z-index: 2;
@@ -76,15 +77,17 @@
 }
 .sq-target-list {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 12px;
+  gap: 6px 8px;
   margin-left: 6px;
+  font-size: 20px; /* smaller than the "targets:" label so long lists fit one line */
 }
 .sq-target-item {
   position: relative;
   display: inline-block;
-  padding: 0 12px 2px;
-  border: 2.5px solid var(--ink);
+  padding: 0 8px 2px;
+  border: 2px solid var(--ink);
   border-radius: 255px 25px 225px 25px / 25px 225px 25px 255px;
   color: var(--ink);
   transform: rotate(var(--tilt, -1.5deg));
@@ -107,9 +110,9 @@
 }
 .sq-target-check {
   position: absolute;
-  top: -14px;
-  right: -10px;
-  font-size: 30px;
+  top: -12px;
+  right: -8px;
+  font-size: 24px;
   font-weight: 700;
   color: #2c6e3f;
   opacity: 0;
@@ -191,6 +194,47 @@
   color: var(--ink-soft);
   z-index: 2;
   pointer-events: none;
+}
+
+/* ---- level nav (hand-drawn arrows) ---- */
+
+.sq-nav {
+  position: absolute;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 14px 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: "Caveat", cursive;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  z-index: 2;
+}
+.sq-nav-back {
+  left: 22px;
+  transform: rotate(-1.5deg);
+}
+.sq-nav-next {
+  right: 22px;
+  transform: rotate(1.5deg);
+}
+.sq-nav:hover {
+  color: var(--ink);
+}
+.sq-nav-label {
+  padding-bottom: 2px;
+}
+.sq-nav-arrow {
+  display: block;
+  width: 58px;
+  height: 30px;
+}
+.sq-nav-arrow canvas {
+  display: block;
 }
 
 /* ---- verdict overlay ---- */
