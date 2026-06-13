@@ -2,8 +2,8 @@
 
 A system message lists the level's still-needed targets, optionally followed
 by a few (sentence, label) examples as few-shot turns; the final user message
-is the assembled sentence followed by " is the same as", mirroring the board's
-"=" submit tile. One chat-completion call with max_tokens=1 and top_logprobs;
+is the assembled sentence followed by " is the same as". One chat-completion
+call with max_tokens=1 and top_logprobs;
 the next-token distribution is masked to the level's candidate labels and
 renormalized with a softmax — i.e. constrained decoding, enforced client-side.
 The candidate set is what makes the answer an emotion on one board and an
@@ -101,7 +101,7 @@ def score_labels(
 
 
 def judge(payload: dict) -> dict:
-    """Server function called from JS when the player reaches "=".
+    """Server function called from JS when the player reaches "⏎".
 
     Single-dict payload: Gradio's component server reliably passes exactly
     one JSON argument through to server functions. The board sends its
