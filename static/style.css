@@ -112,7 +112,7 @@
   pointer-events: none;
 }
 
-/* context window: a labelled "N/budget" counter */
+/* hops: a labelled "N/budget" counter */
 .sq-context {
   display: flex;
   align-items: center;
@@ -151,30 +151,28 @@
 }
 .sq-prompt-label {
   font-family: "Caveat", cursive;
-  font-size: 26px;
+  font-size: 30px;
   font-weight: 600;
   color: var(--ink-soft);
-  margin-right: 4px;
+  margin-right: 6px;
 }
 .sq-chips {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 11px;
+  gap: 14px;
 }
 .sq-chip {
   display: inline-block;
   font-family: "Caveat", cursive;
-  font-size: 28px;
-  font-weight: 600;
+  font-size: 42px;
+  font-weight: 700;
   line-height: 1;
+  color: var(--ink);
   transform: rotate(var(--tilt, 0deg));
 }
 .sq-chip-text {
   display: inline-block;
-}
-.sq-chip-bos {
-  color: var(--ink-soft);
 }
 
 /* ---- hint ---- */
