@@ -92,7 +92,7 @@ def score_labels(sentence: str, labels: list[str]) -> dict[str, float]:
 
 
 def judge(payload: dict) -> dict:
-    """Server function called from JS when the player reaches <eos>.
+    """Server function called from JS when the player reaches ⏎.
 
     Single-dict payload: Gradio's component server reliably passes exactly
     one JSON argument through to server functions.
