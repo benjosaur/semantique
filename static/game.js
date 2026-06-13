@@ -2,6 +2,19 @@
 // `element`, `props`, `server` are provided by Gradio; `gsap` is global (head).
 
 (async () => {
+  // Gradio ships its own viewport meta; update that single tag (don't add a
+  // second) to lock zoom so swipes can't pinch/double-tap-zoom the board.
+  {
+    let vp = document.querySelector('meta[name="viewport"]');
+    if (!vp) {
+      vp = document.createElement("meta");
+      vp.name = "viewport";
+      document.head.appendChild(vp);
+    }
+    vp.content =
+      "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover";
+  }
+
   const THREE = await import("https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js");
 
   const level = props.value; // { grid, start, targets, budget, labels }
@@ -684,6 +697,12 @@
   const chipsEl = element.querySelector(".sq-chips");
   const hintEl = element.querySelector(".sq-hint");
 
+  // Touch devices have no keyboard, so they get swipe controls — say so.
+  const HOP_HINT = window.matchMedia("(pointer: coarse)").matches
+    ? "swipe to hop"
+    : "arrow keys / WASD to hop";
+  hintEl.textContent = HOP_HINT;
+
   let state = "idle"; // idle | hopping | judging | verdict | dead
   let pos = [...level.start];
   let words = []; // appended (non-structural) words
@@ -954,7 +973,7 @@
     [...chipsEl.querySelectorAll(".sq-chip")].forEach((c) => c.remove());
     hud.reset();
     hintEl.textContent = remainingTargets().length
-      ? "arrow keys / WASD to hop"
+      ? HOP_HINT
       : "all targets collected! free hopping";
     gsap.to(hintEl, { opacity: 1, duration: 0.4 });
 
@@ -994,17 +1013,46 @@
     hopTo(nr, nc);
   }
 
-  document.addEventListener("keydown", (e) => {
-    const dir = DIRS[e.key.toLowerCase()];
-    if (!dir || e.metaKey || e.ctrlKey || e.altKey) return;
-    e.preventDefault();
+  // Shared by keyboard and swipe: hop now, or buffer one move mid-hop.
+  function handleDir(dir) {
     if (state === "hopping" && !buffered) {
       buffered = dir;
       return;
     }
     if (state !== "idle") return;
     tryMove(dir);
+  }
+
+  document.addEventListener("keydown", (e) => {
+    const dir = DIRS[e.key.toLowerCase()];
+    if (!dir || e.metaKey || e.ctrlKey || e.altKey) return;
+    e.preventDefault();
+    handleDir(dir);
   });
+
+  // Touch: a swipe maps 1:1 to the arrow keys. The board is screen-aligned
+  // (row− is up/away, col+ is right), so the gesture's dominant axis picks the
+  // same DIRS vector the keyboard uses. One swipe = one hop, decided on release.
+  // `touch-action: none` on .sq-root suppresses scroll/zoom, so no preventDefault
+  // bookkeeping is needed here. Mouse stays on the keyboard (no accidental hops).
+  const SWIPE_MIN = 28; // px; a shorter drag is a tap, ignored
+  let swStart = null;
+  stage.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse") return;
+    swStart = { x: e.clientX, y: e.clientY };
+  });
+  stage.addEventListener("pointerup", (e) => {
+    if (!swStart) return;
+    const dx = e.clientX - swStart.x;
+    const dy = e.clientY - swStart.y;
+    swStart = null;
+    if (Math.hypot(dx, dy) < SWIPE_MIN) return;
+    const dir = Math.abs(dx) > Math.abs(dy)
+      ? (dx > 0 ? DIRS.d : DIRS.a) // right / left
+      : (dy > 0 ? DIRS.s : DIRS.w); // down / up
+    handleDir(dir);
+  });
+  stage.addEventListener("pointercancel", () => (swStart = null));
 
   // ---- camera framing ----
   const VIEW = 7.0; // world units visible vertically
@@ -1012,11 +1060,15 @@
     const w = stage.clientWidth || 1;
     const h = stage.clientHeight || 1;
     const aspect = w / h;
+    // Short viewports (landscape phones) are wide but only ~400px tall, so the
+    // top chrome (HUD + sentence) and bottom hint would clip the board. Zoom out
+    // a touch more and aim higher, dropping the board into the clear middle band.
+    const short = h <= 540;
     // fov stays 32°; dolly the camera so the board fits either way
-    const need = Math.max(VIEW, 6.8 / aspect); // keep the board inside narrow windows
+    const need = Math.max(VIEW, 6.8 / aspect, short ? 9.4 : 0);
     camera.position.z = need / 2 / Math.tan(THREE.MathUtils.degToRad(32 / 2));
     camera.aspect = aspect;
-    camera.lookAt(0, 0.25, 0);
+    camera.lookAt(0, short ? 0.55 : 0.25, 0);
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
   }
