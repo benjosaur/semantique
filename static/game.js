@@ -15,6 +15,33 @@
       "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover";
   }
 
+  // ---- embed fit (HF Spaces) ----
+  // HF serves the Space inside an iframe driven by iframe-resizer, which sizes
+  // the iframe to its content. Our `100dvh` root then resolves to the iframe's
+  // OWN height, so every measure-and-grow cycle makes the content taller — the
+  // iframe balloons without bound and the (vertically centered) board ends up
+  // thousands of px below the fold: "it all drags down". Localhost has no
+  // iframe, so `100dvh` is the real window and this branch never runs.
+  // Fix: let the document be content-height and pin the game to a fixed pixel
+  // height — the parent's visible viewport — so the iframe settles instead of
+  // feeding back on itself.
+  if (window.self !== window.top) {
+    const rootEl = element.querySelector(".sq-root");
+    document.documentElement.style.height = document.body.style.height = "auto";
+    const fit = (h) => h > 0 && (rootEl.style.height = Math.round(h) + "px");
+    // Instant pin, before the resizer API is ready; cap by the screen so any
+    // runaway that already started can't lock in a giant value.
+    fit(Math.min(window.innerHeight, window.screen.height || Infinity));
+    // Once iframe-resizer's content-window API is up, fill the parent's real
+    // viewport — getPageInfo re-fires on parent scroll/resize, so it stays right.
+    const poll = setInterval(() => {
+      if (!window.parentIFrame) return;
+      clearInterval(poll);
+      window.parentIFrame.getPageInfo((info) => fit(info.clientHeight));
+    }, 50);
+    setTimeout(() => clearInterval(poll), 5000); // give up waiting for the API
+  }
+
   const THREE = await import("https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js");
 
   // props.value: { levels: [clientValue...], order: [id...], home: id }
