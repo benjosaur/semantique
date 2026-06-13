@@ -17,8 +17,12 @@ HEAD = """
 # Hide all Gradio chrome: the game component IS the page.
 BLOCKS_CSS = """
 footer { display: none !important; }
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 .gradio-container { padding: 0 !important; max-width: 100% !important; background: #faf8f2 !important; }
 .gradio-container .main, .gradio-container .wrap { background: #faf8f2 !important; }
+/* Zero Gradio's own wrapper padding so the game sits flush at the top — else a
+   ~26px gap pushes the board down and clips the bottom hint off mobile screens. */
+.gradio-container .main, .html-container { padding: 0 !important; }
 """
 
 with gr.Blocks(css=BLOCKS_CSS, title="Semantique") as demo:
