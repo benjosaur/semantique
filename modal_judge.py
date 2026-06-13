@@ -1,16 +1,16 @@
 """Modal GPU endpoint: exact per-label logprobs from a self-hosted open LLM.
 
 The game's judge only needs the next-token distribution once (no generation), so
-this is a single (batched) forward pass — no top-k cap. For each emotion label we
+this is a single (batched) forward pass — no top-k cap. For each candidate label we
 score its *whole* token sequence by teacher forcing: sum of log P(token_j | prefix),
 read straight off one forward over [prompt + label]. That's the exact probability
 the model would emit the word, handling multi-token labels correctly (a label like
-"scared" that splits into pieces is scored on the full word, not just its first
-piece — which would otherwise borrow probability mass from "scary", "score", ...).
+"surprised" that splits into pieces is scored on the full word, not just its first
+piece — which would otherwise borrow probability mass from "surprise", "super", ...).
 
-All `labels × surface-forms` candidates ride in ONE batched forward pass: at batch=1
-an 8B model is memory-bandwidth-bound (it streams ~16 GB of weights per pass), so
-batching ~8 candidates is ~as cheap as scoring one.
+The prompt is built client-side (judge.py) and arrives as chat `messages`; this
+service just applies the tokenizer's chat template and scores the candidate labels.
+All `labels × surface-forms` candidates ride in ONE batched forward pass.
 
 Deploy:  modal deploy modal_judge.py     (stable URL)
 Dev:     modal serve  modal_judge.py     (hot-reload, temporary URL)
@@ -44,26 +44,6 @@ with image.imports():
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# Few-shot pins the answer to a single lowercase emotion word (kept next to the model,
-# since the right prompting is model-specific).
-FEW_SHOT = [
-    ("I just won the lottery!", "happy"),
-    ("My best friend moved away forever.", "sad"),
-    ("Stop touching my stuff!", "angry"),
-    ("Something is moving in the dark basement.", "scared"),
-]
-
-QUESTION = 'What emotion does this sentence express, in one lowercase word: "{}"'
-
-
-def _build_messages(sentence: str) -> list[dict]:
-    msgs: list[dict] = []
-    for example, emotion in FEW_SHOT:
-        msgs.append({"role": "user", "content": QUESTION.format(example)})
-        msgs.append({"role": "assistant", "content": emotion})
-    msgs.append({"role": "user", "content": QUESTION.format(sentence)})
-    return msgs
-
 
 @app.cls(
     gpu="l4",  # 24 GB; MiniCPM3-4B in bf16 is ~8 GB — comfortable headroom.
@@ -88,15 +68,13 @@ class Judge:
         # Runs on every (snapshot) restore: move the model onto the GPU.
         self.model.to("cuda")
 
-    def _score_logprobs(self, sentence: str, labels: list[str]) -> dict[str, float]:
-        """Exact joint log-prob of the model emitting each label as its one-word answer.
+    def _score_logprobs(self, messages: list[dict], labels: list[str]) -> dict[str, float]:
+        """Exact joint log-prob of the model continuing `messages` with each label.
 
         Scores each label's *whole* token sequence (max over leading-space / bare
         surface forms). All candidates ride one batched forward pass.
         """
-        base = self.tok.apply_chat_template(
-            _build_messages(sentence), add_generation_prompt=True, tokenize=True
-        )
+        base = self.tok.apply_chat_template(messages, add_generation_prompt=True, tokenize=True)
         prompt_len = len(base)
 
         # One candidate per (label, surface form): score the whole word, not just its
@@ -129,12 +107,10 @@ class Judge:
             out[label] = max(out.get(label, float("-inf")), score)
         return out
 
-    def _debug(self, sentence: str, labels: list[str]) -> dict:
+    def _debug(self, messages: list[dict], labels: list[str]) -> dict:
         """Diagnostics for scripts/check_modal.py: how labels tokenize, and the top
-        next-tokens after the prompt (to confirm the answer slot holds emotion words)."""
-        base = self.tok.apply_chat_template(
-            _build_messages(sentence), add_generation_prompt=True, tokenize=True
-        )
+        next-tokens after the prompt (to confirm the answer slot holds label words)."""
+        base = self.tok.apply_chat_template(messages, add_generation_prompt=True, tokenize=True)
         with torch.no_grad():
             final = self.model(torch.tensor([base], device="cuda")).logits[0, -1].float().log_softmax(-1)
         top_lp, top_id = final.topk(15)
@@ -148,23 +124,27 @@ class Judge:
 
     @modal.fastapi_endpoint(method="POST", requires_proxy_auth=True, docs=False)
     def score(self, data: dict) -> dict:
-        """POST {"sentence": str, "labels": [str], "debug"?: bool} -> {"logprobs": {label: float}}."""
-        resp = {"logprobs": self._score_logprobs(data["sentence"], data["labels"])}
+        """POST {"messages": [...], "labels": [str], "debug"?: bool} -> {"logprobs": {label: float}}."""
+        resp = {"logprobs": self._score_logprobs(data["messages"], data["labels"])}
         if data.get("debug"):
-            resp["debug"] = self._debug(data["sentence"], data["labels"])
+            resp["debug"] = self._debug(data["messages"], data["labels"])
         return resp
 
     @modal.method()
-    def score_remote(self, sentence: str, labels: list[str]) -> dict[str, float]:
+    def score_remote(self, messages: list[dict], labels: list[str]) -> dict[str, float]:
         """Same scoring, callable via `.remote()` for smoke tests (no HTTP layer)."""
-        return self._score_logprobs(sentence, labels)
+        return self._score_logprobs(messages, labels)
 
 
 @app.local_entrypoint()
 def main(sentence: str = "not sad"):
     """Smoke test against the deployed/served class: `modal run modal_judge.py`."""
-    labels = ["happy", "sad", "angry", "scared"]
-    result = Judge().score_remote.remote(sentence, labels)
+    labels = ["happy", "betrayed", "surprised"]
+    messages = [
+        {"role": "system", "content": f"The targets are: {', '.join(labels)}."},
+        {"role": "user", "content": f"{sentence} is the same as"},
+    ]
+    result = Judge().score_remote.remote(messages, labels)
     print(f"{sentence!r}")
     for label, lp in sorted(result.items(), key=lambda kv: -kv[1]):
-        print(f"  {label:8s} {lp:8.3f}")
+        print(f"  {label:10s} {lp:8.3f}")

@@ -15,52 +15,107 @@
       "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover";
   }
 
+  // ---- embed fit (HF Spaces) ----
+  // HF serves the Space inside an iframe driven by iframe-resizer, which sizes
+  // the iframe to its content. Our `100dvh` root then resolves to the iframe's
+  // OWN height, so every measure-and-grow cycle makes the content taller — the
+  // iframe balloons without bound and the (vertically centered) board ends up
+  // thousands of px below the fold: "it all drags down". Localhost has no
+  // iframe, so `100dvh` is the real window and this branch never runs.
+  // Fix: let the document be content-height and pin the game to a fixed pixel
+  // height — the parent's visible viewport — so the iframe settles instead of
+  // feeding back on itself.
+  if (window.self !== window.top) {
+    const rootEl = element.querySelector(".sq-root");
+    document.documentElement.style.height = document.body.style.height = "auto";
+    const fit = (h) => h > 0 && (rootEl.style.height = Math.round(h) + "px");
+    // Instant pin, before the resizer API is ready; cap by the screen so any
+    // runaway that already started can't lock in a giant value.
+    fit(Math.min(window.innerHeight, window.screen.height || Infinity));
+    // Gradio's shell (.main.fillable / .wrap / .contain) sits a few constant px
+    // taller than our component, so the iframe-resizer measures `root + chrome`.
+    // Size root so the WHOLE document equals the slot: subtract that measured
+    // excess. Cached so repeat getPageInfo events don't oscillate.
+    let chrome = 0;
+    const apply = (info) => {
+      // Available slot = parent viewport minus how far the iframe sits below the
+      // top (HF's header); clamped so it never exceeds one screen (no scroll).
+      const avail = Math.min(info.clientHeight, info.clientHeight - info.offsetTop + info.scrollTop);
+      fit(avail - chrome);
+      requestAnimationFrame(() => {
+        const excess = document.body.offsetHeight - rootEl.offsetHeight;
+        if (excess >= 0 && excess !== chrome) { chrome = excess; fit(avail - chrome); }
+      });
+    };
+    // getPageInfo re-fires on parent scroll/resize, so a rotating phone or a
+    // collapsing mobile URL bar stays fitted.
+    const poll = setInterval(() => {
+      if (!window.parentIFrame) return;
+      clearInterval(poll);
+      window.parentIFrame.getPageInfo(apply);
+    }, 50);
+    setTimeout(() => clearInterval(poll), 5000); // give up waiting for the API
+  }
+
   const THREE = await import("https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js");
 
-  const level = props.value; // { grid, start, targets, budget, labels }
-  const ROWS = level.grid.length;
-  const COLS = level.grid[0].length;
+  // props.value: { levels: [clientValue...], order: [id...], home: id }
+  const data = props.value;
+  const LEVELS = Object.fromEntries(data.levels.map((l) => [l.id, l]));
+  const ORDER = data.order;
+  let level = LEVELS[data.home]; // the active board; swapped by loadLevel()
+  let ROWS = level.grid.length;
+  let COLS = level.grid[0].length;
+  // Checked-off targets persist per board across switches and rounds.
+  const checkedByLevel = Object.fromEntries(data.levels.map((l) => [l.id, new Set()]));
   const root = element.querySelector(".sq-root");
   const stage = element.querySelector(".sq-stage");
 
   const INK = "#1c1b18";
   const INK_SOFT = "#5a564c";
+  const ACCENT = "#b3402e";
+
+  // A grid cell appends its word unless it's structural (start / blank / ⏎).
+  const appendsWord = (w) => w && w !== "start" && w !== "⏎";
 
   // ---- HUD ----
-  // The targets checklist: every emotion to collect. Checks persist across
-  // rounds ("hop again" keeps them), so the meta-game is collecting all four.
+  // The targets checklist: every label to collect. Checks persist per board
+  // across rounds ("hop again" keeps them), so the meta-game is collecting all.
   const targetListEl = element.querySelector(".sq-target-list");
-  const checked = new Set();
-  const targetItems = {};
-  for (const label of level.targets) {
-    const item = document.createElement("span");
-    item.className = "sq-target-item";
-    item.style.setProperty("--tilt", `${(Math.random() * 4 - 2.5).toFixed(1)}deg`);
-    item.appendChild(document.createTextNode(label));
-    const check = document.createElement("span");
-    check.className = "sq-target-check";
-    check.textContent = "✓";
-    item.appendChild(check);
-    targetListEl.appendChild(item);
-    targetItems[label] = item;
+  let targetItems = {}; // label -> chip element, rebuilt per board
+  const checkedOnThisLevel = () => checkedByLevel[level.id];
+  const remainingTargets = () => level.targets.filter((t) => !checkedOnThisLevel().has(t));
+
+  // (Re)build the checklist for the active board, restoring any persisted checks.
+  function buildTargets() {
+    targetListEl.innerHTML = "";
+    targetItems = {};
+    const checked = checkedOnThisLevel();
+    for (const label of level.targets) {
+      const item = document.createElement("span");
+      item.className = "sq-target-item";
+      item.style.setProperty("--tilt", `${(Math.random() * 4 - 2.5).toFixed(1)}deg`);
+      item.appendChild(document.createTextNode(label));
+      if (checked.has(label)) item.classList.add("sq-checked");
+      targetListEl.appendChild(item);
+      targetItems[label] = item;
+    }
+    element.querySelector(".sq-ctx-cap").textContent = level.budget;
   }
-  const remainingTargets = () => level.targets.filter((t) => !checked.has(t));
 
   function checkOff(label) {
-    checked.add(label);
+    checkedOnThisLevel().add(label);
     const item = targetItems[label];
-    item.classList.add("sq-checked");
-    gsap.fromTo(
-      item.querySelector(".sq-target-check"),
-      { opacity: 0, scale: 2.6, rotation: -24 },
-      { opacity: 1, scale: 1, rotation: -8, duration: 0.3, ease: "power3.in" }
-    );
+    item.classList.add("sq-checked"); // fades + strikes the word through
+    gsap.fromTo(item, { scale: 1.3 }, { scale: 1, duration: 0.3, ease: "back.out(2)" });
+    // collecting the last target completes the board — reveal the forward swap tile
+    if (remainingTargets().length === 0) revealForwardSwap();
   }
 
   // The hop counter: a plain "N/budget" counter that ticks up each hop.
+  // (The cap text is set per board in buildTargets.)
   const countEl = element.querySelector(".sq-context-count");
   const usedEl = element.querySelector(".sq-ctx-used");
-  element.querySelector(".sq-ctx-cap").textContent = level.budget;
   const hud = {
     update(used) {
       usedEl.textContent = used;
@@ -129,9 +184,12 @@
   // crisp on hidpi screens (all drawing keeps using logical coordinates).
   const TEX_SCALE = Math.min(window.devicePixelRatio || 1, 2);
 
-  function drawTileCanvas(ctx, word) {
+  // The bare keycap face: opaque paper base + the wobbly double-stroke rim that
+  // doubles as the 3D silhouette (the extruded body follows this outline).
+  // `special` softens the ink (start / ⏎ / swap); `dashed` adds the "press me"
+  // dashed rim (the submit and swap tiles — the start tile stays solid).
+  function drawKeycapBase(ctx, special, dashed) {
     ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
-    const special = word === "start" || word === "⏎";
     // opaque paper base — the keycap body is the rounded outline itself now,
     // so this whole canvas IS the cap face (extruded silhouette clips it)
     ctx.fillStyle = "#faf8f2";
@@ -150,7 +208,7 @@
 
     // double ink stroke = "traced twice" feel
     ctx.strokeStyle = special ? INK_SOFT : INK;
-    ctx.setLineDash(special ? [16, 13] : []);
+    ctx.setLineDash(dashed ? [16, 13] : []);
     ctx.lineWidth = 7;
     ctx.stroke();
     ctx.setLineDash([]);
@@ -158,15 +216,49 @@
     ctx.strokeStyle = special ? "rgba(90,86,76,0.35)" : "rgba(28,27,24,0.35)";
     ctx.lineWidth = 4;
     ctx.stroke();
+  }
 
-    // the word — the start tile is the blank home square, so it stays wordless
-    if (word !== "start") {
+  function drawTileCanvas(ctx, word) {
+    const special = word === "start" || word === "⏎";
+    // only the submit tile keeps a dashed rim as a "press me" cue; the start
+    // tile reads as a normal solid keycap.
+    drawKeycapBase(ctx, special, word === "⏎");
+
+    // the word — start and empty tiles are blank squares, so they stay wordless
+    const blank = !word || word === "start";
+    if (!blank) {
       ctx.fillStyle = special ? INK_SOFT : INK;
       let size = word.length > 6 ? 64 : 76;
       ctx.font = `400 ${size}px "Patrick Hand"`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(word, TILE_PX / 2 + rand(-2, 2), TILE_PX / 2 + rand(-1, 3));
+    }
+  }
+
+  // A board-swap keycap: a special dashed cap stamped with a big accent arrow
+  // (→, to the next board) and the destination board's title below.
+  function drawSwapTileCanvas(ctx, dir, label) {
+    drawKeycapBase(ctx, true, true);
+    const cx = TILE_PX / 2;
+    const ay = 150; // arrow centre line
+    const half = 78;
+    const tail = cx - dir * half;
+    const tip = cx + dir * half;
+    ctx.strokeStyle = ACCENT;
+    ctx.lineJoin = ctx.lineCap = "round";
+    ctx.lineWidth = 20;
+    wobblyLine(ctx, tail, ay, tip, ay, 4); ctx.stroke(); // shaft
+    wobblyLine(ctx, tip, ay, tip - dir * 58, ay - 48, 3); ctx.stroke(); // upper barb
+    wobblyLine(ctx, tip, ay, tip - dir * 58, ay + 48, 3); ctx.stroke(); // lower barb
+
+    if (label) {
+      ctx.fillStyle = INK;
+      const size = label.length > 7 ? 56 : 64;
+      ctx.font = `400 ${size}px "Patrick Hand"`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, cx + rand(-2, 2), 268 + rand(-1, 2));
     }
   }
 
@@ -280,31 +372,111 @@
   sideTexture.colorSpace = THREE.SRGBColorSpace;
   const sideMaterial = new THREE.MeshBasicMaterial({ map: sideTexture });
 
-  const tiles = []; // { mesh, ctx, texture, word, row, col }
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
-      const word = level.grid[r][c];
-      const canvas = document.createElement("canvas");
-      canvas.width = canvas.height = TILE_PX * TEX_SCALE;
-      const ctx = canvas.getContext("2d");
-      drawTileCanvas(ctx, word);
+  let tiles = []; // { mesh, ctx, texture, word, row, col }
+  const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-      texture.colorSpace = THREE.SRGBColorSpace;
+  // (Re)build the keycaps for the active board, disposing the previous set.
+  function buildTiles() {
+    for (const t of tiles) {
+      board.remove(t.mesh);
+      t.texture.dispose();
+      t.mesh.material[0].dispose(); // per-tile cap material (side is shared)
+    }
+    tiles = [];
+    ROWS = level.grid.length;
+    COLS = level.grid[0].length;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const word = level.grid[r][c];
+        const canvas = document.createElement("canvas");
+        canvas.width = canvas.height = TILE_PX * TEX_SCALE;
+        const ctx = canvas.getContext("2d");
+        drawTileCanvas(ctx, word);
 
-      // ExtrudeGeometry groups: [0] = caps (top + hidden bottom), [1] = side wall
-      const mesh = new THREE.Mesh(tileGeometry, [
-        new THREE.MeshBasicMaterial({ map: texture, transparent: false }),
-        sideMaterial,
-      ]);
-      const { x, z } = tileAt(r, c);
-      mesh.position.set(x, -TILE_DEPTH / 2, z); // top face flush with y=0
-      board.add(mesh);
-      tiles.push({ mesh, ctx, texture, word, row: r, col: c });
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.anisotropy = maxAniso;
+        texture.colorSpace = THREE.SRGBColorSpace;
+
+        // ExtrudeGeometry groups: [0] = caps (top + hidden bottom), [1] = side wall
+        const mesh = new THREE.Mesh(tileGeometry, [
+          new THREE.MeshBasicMaterial({ map: texture, transparent: false }),
+          sideMaterial,
+        ]);
+        const { x, z } = tileAt(r, c);
+        mesh.position.set(x, -TILE_DEPTH / 2, z); // top face flush with y=0
+        board.add(mesh);
+        tiles.push({ mesh, ctx, texture, word, row: r, col: c });
+      }
     }
   }
   const tile = (r, c) => tiles[r * COLS + c];
+
+  // ---- board-swap tiles ----
+  // Lone keycaps just off the grid edge: hop onto one and it loads another
+  // board. They live OUTSIDE the rectangular `tiles` array (so the r*COLS+c
+  // index math is untouched) at virtual cells (startRow, COLS) / (startRow, -1),
+  // pushed an extra SWAP_GAP out so they read as a tile "by itself".
+  let swapTiles = []; // { mesh, ctx, texture, row, col, targetId, dir, active, x, z, label }
+  const SWAP_GAP = 0.55;
+  const swapTileAt = (r, c) =>
+    swapTiles.find((s) => s.active && s.row === r && s.col === c) || null;
+
+  function addSwapTile(row, col, targetId, dir, active) {
+    const label = LEVELS[targetId].title;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = TILE_PX * TEX_SCALE;
+    const ctx = canvas.getContext("2d");
+    drawSwapTileCanvas(ctx, dir, label);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.anisotropy = maxAniso;
+    texture.colorSpace = THREE.SRGBColorSpace;
+
+    const mesh = new THREE.Mesh(tileGeometry, [
+      new THREE.MeshBasicMaterial({ map: texture, transparent: false }),
+      sideMaterial,
+    ]);
+    const base = tileAt(row, col);
+    const x = base.x + dir * SWAP_GAP;
+    const z = base.z;
+    mesh.position.set(x, -TILE_DEPTH / 2, z);
+    mesh.visible = active;
+    board.add(mesh);
+    swapTiles.push({ mesh, ctx, texture, row, col, targetId, dir, active, x, z, label });
+  }
+
+  // (Re)build the swap tile for the active board: a single forward tile, shown
+  // once every target here is collected, that progresses to the next board.
+  // Progression is one-way — there is no back tile. Then recentre the board so
+  // the grid plus its lone side tile sit balanced under the camera.
+  function buildSwapTiles() {
+    for (const s of swapTiles) {
+      board.remove(s.mesh);
+      s.texture.dispose();
+      s.mesh.material[0].dispose(); // per-tile cap material (side is shared)
+    }
+    swapTiles = [];
+    const i = ORDER.indexOf(level.id);
+    const hasNext = i < ORDER.length - 1;
+    if (hasNext) {
+      addSwapTile(level.start[0], COLS, ORDER[i + 1], +1, remainingTargets().length === 0);
+    }
+    board.position.x = hasNext ? -(SPACING + SWAP_GAP) / 2 : 0;
+  }
+
+  // Board complete: poof the forward swap tile in so the doodle can hop onward.
+  function revealForwardSwap() {
+    const s = swapTiles.find((t) => t.dir > 0 && !t.active);
+    if (!s) return;
+    s.active = true;
+    s.mesh.visible = true;
+    sfx.pop();
+    gsap.fromTo(
+      s.mesh.scale,
+      { x: 0, y: 0, z: 0 },
+      { x: 1, y: 1, z: 1, duration: 0.45, ease: "back.out(2)" }
+    );
+  }
 
   // Depress a keycap and let it spring back, like the doodle typed it.
   function pressTile(t) {
@@ -464,7 +636,7 @@
     ctx.stroke();
 
     // one flat accent detail: a little scarf at the neck
-    ctx.strokeStyle = "#b3402e";
+    ctx.strokeStyle = ACCENT;
     ctx.lineWidth = 8;
     wobblyLine(ctx, 106, 126, 150, 126, 2); ctx.stroke();
     ctx.strokeStyle = INK;
@@ -558,7 +730,8 @@
   charMesh.renderOrder = 1; // only transparent mesh left — draw after keycaps
   const charTilt = { z: 0 }; // cartoon lean, composed into the billboard quat
   const charPosFor = (r, c) => {
-    const { x, z } = tileAt(r, c);
+    const s = swapTileAt(r, c); // swap tiles sit at a gapped world position
+    const { x, z } = s ? s : tileAt(r, c);
     return { x, z: z + CHAR_Z_OFF };
   };
   // charGroup carries the grid position; charMesh.position.y is the jump arc.
@@ -581,18 +754,51 @@
       drawTileCanvas(t.ctx, t.word);
       t.texture.needsUpdate = true;
     }
+    for (const s of swapTiles) {
+      drawSwapTileCanvas(s.ctx, s.dir, s.label);
+      s.texture.needsUpdate = true;
+    }
     drawTileSideCanvas(sideCtx);
     sideTexture.needsUpdate = true;
     drawCharCanvas(charCtx, charPose);
     charTexture.needsUpdate = true;
+    syncAudioUI();
   }, 340);
 
   // ---- sounds: a tiny Web Audio sketch-synth ----
   // Every cue is an oscillator doodle or a pinch of filtered noise — no
   // samples to load, and the bleeps match the hand-drawn look.
 
+  // Music and sfx each carry a volume (0..1) and ride their own bus off the
+  // master, so the in-game mixer can level/mute them independently. Levels
+  // persist in localStorage; read them now so the buses come up at the right
+  // level when the context is built.
+  const AUDIO_PREF_KEY = "sq-audio";
+  const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+  function loadAudioPrefs() {
+    try { return JSON.parse(localStorage.getItem(AUDIO_PREF_KEY)) || {}; }
+    catch (e) { return {}; }
+  }
+  function saveAudioPrefs() {
+    try { localStorage.setItem(AUDIO_PREF_KEY, JSON.stringify({ musicVol, sfxVol })); }
+    catch (e) { /* storage may be partitioned inside the HF iframe — ignore */ }
+  }
+  const _ap = loadAudioPrefs();
+  // migrate the old on/off booleans ({music,sfx}) to volumes when present
+  let musicVol = typeof _ap.musicVol === "number" ? clamp01(_ap.musicVol) : (_ap.music === false ? 0 : 1);
+  let sfxVol = typeof _ap.sfxVol === "number" ? clamp01(_ap.sfxVol) : (_ap.sfx === false ? 0 : 1);
+  let musicPrev = musicVol || 1; // level to restore when un-muting
+  let sfxPrev = sfxVol || 1;
+  // perceived loudness is ~quadratic, so square the slider before it hits gain
+  const MUSIC_MAX = 0.6, SFX_MAX = 1.0; // bus level at full slider (× 0.4 master)
+  const taper = (v) => v * v;
+  const musicBusGain = () => MUSIC_MAX * taper(musicVol);
+  const sfxBusGain = () => SFX_MAX * taper(sfxVol);
+
   let ac = null;
   let masterGain = null;
+  let sfxGain = null; // every bleep routes here; the mixer levels it
+  let musicGain = null; // the background loop routes here
   function audio() {
     if (!ac) {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -601,14 +807,24 @@
       masterGain = ac.createGain();
       masterGain.gain.value = 0.4;
       masterGain.connect(ac.destination);
+      sfxGain = ac.createGain();
+      sfxGain.gain.value = sfxBusGain();
+      sfxGain.connect(masterGain);
+      musicGain = ac.createGain();
+      musicGain.gain.value = musicBusGain();
+      musicGain.connect(masterGain);
     }
     if (ac.state === "suspended") ac.resume();
     return ac;
   }
-  // Sounds often fire from gsap timelines (outside any user gesture), so
-  // unlock the context on real gestures — these also resume after suspension.
-  document.addEventListener("keydown", audio);
-  document.addEventListener("pointerdown", audio);
+  // Sounds often fire from gsap timelines (outside any user gesture), so unlock
+  // the context on real gestures — these also resume after suspension, and kick
+  // off the music loop the first time (browsers block audio until a gesture).
+  function unlockAudio() {
+    if (audio() && musicVol > 0) startMusic();
+  }
+  document.addEventListener("keydown", unlockAudio);
+  document.addEventListener("pointerdown", unlockAudio);
 
   // one swept note with a fast attack and an exponential die-off
   function tone({ type = "triangle", from = 440, to = from, dur = 0.12, vol = 0.3, at = 0 }) {
@@ -622,7 +838,7 @@
     g.gain.setValueAtTime(0, t0);
     g.gain.linearRampToValueAtTime(vol, t0 + 0.008);
     g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-    osc.connect(g).connect(masterGain);
+    osc.connect(g).connect(sfxGain);
     osc.start(t0);
     osc.stop(t0 + dur + 0.05);
   }
@@ -642,7 +858,7 @@
     filter.frequency.value = freq;
     const g = ac.createGain();
     g.gain.value = vol;
-    src.connect(filter).connect(g).connect(masterGain);
+    src.connect(filter).connect(g).connect(sfxGain);
     src.start(t0);
   }
 
@@ -692,6 +908,262 @@
     },
   };
 
+  // ---- background music: a gentle generative pentatonic doodle ----
+  // Same "no samples" spirit as the sfx — a soft melody noodles around a
+  // C-major pentatonic (so nothing ever clashes) over a quiet I–vi–IV–V bass.
+  // A lookahead scheduler clocks notes off ac.currentTime so it never drifts.
+
+  // C-major pentatonic, C4 up to G5 — the melody random-walks this ladder.
+  const PENTA = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99];
+  const BASS = [130.81, 110.0, 87.31, 98.0]; // one root per bar: C, A, F, G
+  const MUSIC_BPM = 84;
+  const STEP_DUR = 60 / MUSIC_BPM / 2; // eighth-note grid
+  const STEPS = 16; // loop length — 4 bars of 4 eighths
+
+  // one warm, gently-enveloped voice through a lowpass: no clicks, no glare
+  function musicNote(freq, at, dur, vol, type) {
+    if (!musicGain) return;
+    const osc = ac.createOscillator();
+    const g = ac.createGain();
+    const lp = ac.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 2000;
+    osc.type = type || "triangle";
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(0, at);
+    g.gain.linearRampToValueAtTime(vol, at + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    osc.connect(lp).connect(g).connect(musicGain);
+    osc.start(at);
+    osc.stop(at + dur + 0.05);
+  }
+
+  let musicTimer = null;
+  let musicStep = 0;
+  let musicNextTime = 0;
+  let melodyIdx = 4; // start mid-ladder (A4)
+
+  // Schedule everything that falls inside the ~120ms lookahead, then advance.
+  function scheduleMusic() {
+    if (!ac) return;
+    while (musicNextTime < ac.currentTime + 0.12) {
+      const bar = Math.floor(musicStep / 4) % BASS.length;
+      if (musicStep % 4 === 0) musicNote(BASS[bar], musicNextTime, 0.9, 0.32, "sine"); // bass on the downbeat
+      // melody: a smooth random walk with rests for a relaxed, sketchy feel
+      if (Math.random() < 0.62) {
+        const stride = (Math.floor(Math.random() * 3) - 1) * (Math.random() < 0.3 ? 2 : 1);
+        melodyIdx = Math.max(0, Math.min(PENTA.length - 1, melodyIdx + stride));
+        const long = Math.random() < 0.25;
+        musicNote(PENTA[melodyIdx], musicNextTime, STEP_DUR * (long ? 1.8 : 0.9), 0.17);
+      }
+      if (Math.random() < 0.05) musicNote(PENTA[PENTA.length - 1] * 2, musicNextTime, 0.3, 0.07); // rare high sparkle
+      musicNextTime += STEP_DUR;
+      musicStep = (musicStep + 1) % STEPS;
+    }
+  }
+
+  function startMusic() {
+    if (musicTimer || !audio()) return;
+    musicNextTime = ac.currentTime + 0.1;
+    musicStep = 0;
+    musicTimer = setInterval(scheduleMusic, 25);
+  }
+  function stopMusic() {
+    if (musicTimer) clearInterval(musicTimer);
+    musicTimer = null;
+  }
+
+  // ---- audio toggles: hand-drawn ♫ + speaker doodles in the top-right ----
+  // Bake each icon to a little canvas with the wobbly-ink helpers and let the
+  // boil re-jitter it, same as the keycaps. A red slash = muted.
+  const ICON = 30; // logical canvas units (square)
+
+  function makeIconCanvas(host) {
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = ICON * TEX_SCALE;
+    host.appendChild(cv);
+    return cv;
+  }
+
+  // the shared "off" mark — a wobbly accent slash struck across the icon
+  function drawSlash(ctx) {
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 3;
+    wobblyLine(ctx, 5, 7, ICON - 5, ICON - 7, 1.3);
+    ctx.stroke();
+  }
+
+  function drawMusicIcon(ctx, on) {
+    ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
+    ctx.clearRect(0, 0, ICON, ICON);
+    ctx.lineJoin = ctx.lineCap = "round";
+    ctx.globalAlpha = on ? 1 : 0.5;
+    ctx.strokeStyle = ctx.fillStyle = on ? INK : INK_SOFT;
+    // two stems joined by a slanted beam — the classic two-quaver ♫
+    const aStem = [13.5, 6.5], bStem = [24.5, 3.5];
+    ctx.lineWidth = 2.4;
+    wobblyLine(ctx, aStem[0], aStem[1], aStem[0], 21, 0.7); ctx.stroke();
+    wobblyLine(ctx, bStem[0], bStem[1], bStem[0], 18, 0.7); ctx.stroke();
+    ctx.lineWidth = 3.6;
+    wobblyLine(ctx, aStem[0], aStem[1], bStem[0], bStem[1], 0.7); ctx.stroke();
+    for (const [hx, hy] of [[10, 22], [21, 19]]) { // filled, slightly tilted note heads
+      ctx.beginPath();
+      ctx.ellipse(hx + rand(-0.5, 0.5), hy + rand(-0.5, 0.5), 4.2, 3.1, -0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (!on) drawSlash(ctx);
+    ctx.globalAlpha = 1;
+  }
+
+  function drawSpeakerIcon(ctx, on) {
+    ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
+    ctx.clearRect(0, 0, ICON, ICON);
+    ctx.lineJoin = ctx.lineCap = "round";
+    ctx.globalAlpha = on ? 1 : 0.5;
+    // speaker body + cone as one wobbly outline
+    const pts = [[6, 12], [6, 18], [10, 18], [16, 24], [16, 6], [10, 12]];
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => {
+      const jx = x + rand(-0.5, 0.5), jy = y + rand(-0.5, 0.5);
+      i ? ctx.lineTo(jx, jy) : ctx.moveTo(jx, jy);
+    });
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255,253,247,0.9)";
+    ctx.fill();
+    ctx.lineWidth = 2.4;
+    ctx.strokeStyle = on ? INK : INK_SOFT;
+    ctx.stroke();
+    if (on) { // sound waves only when the sfx are on
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(18, 15, 3.5, -0.9, 0.9); ctx.stroke();
+      ctx.beginPath(); ctx.arc(18, 15, 6.5, -0.85, 0.85); ctx.stroke();
+    }
+    if (!on) drawSlash(ctx);
+    ctx.globalAlpha = 1;
+  }
+
+  const audioCluster = element.querySelector(".sq-audio");
+  const musicBtn = element.querySelector(".sq-music-btn");
+  const sfxBtn = element.querySelector(".sq-sfx-btn");
+  const popEl = element.querySelector(".sq-audio-pop");
+  const volMusicBtn = element.querySelector(".sq-vol-music");
+  const volSfxBtn = element.querySelector(".sq-vol-sfx");
+  const musicIconCtx = makeIconCanvas(musicBtn).getContext("2d");
+  const sfxIconCtx = makeIconCanvas(sfxBtn).getContext("2d");
+  const volMusicCtx = makeIconCanvas(volMusicBtn).getContext("2d");
+  const volSfxCtx = makeIconCanvas(volSfxBtn).getContext("2d");
+
+  // ---- volume sliders: a wobbly ink rule with a filled level + draggable nib ----
+  const SLIDER_W = 120, SLIDER_H = 26, SLIDER_PAD = 11;
+  function drawSlider(ctx, val) {
+    ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
+    ctx.clearRect(0, 0, SLIDER_W, SLIDER_H);
+    ctx.lineJoin = ctx.lineCap = "round";
+    const y = SLIDER_H / 2, x0 = SLIDER_PAD, x1 = SLIDER_W - SLIDER_PAD;
+    const nx = x0 + clamp01(val) * (x1 - x0);
+    ctx.globalAlpha = 0.5; ctx.strokeStyle = INK_SOFT; ctx.lineWidth = 3; // faint full track
+    wobblyLine(ctx, x0, y, x1, y, 1.0); ctx.stroke();
+    ctx.globalAlpha = 1;
+    if (nx > x0 + 0.5) { ctx.strokeStyle = INK; ctx.lineWidth = 4.5; wobblyLine(ctx, x0, y, nx, y, 0.9); ctx.stroke(); } // inked level
+    wobblyCircle(ctx, nx, y, 6.5, 1.1); // the nib
+    ctx.fillStyle = "rgba(255,253,247,0.95)"; ctx.fill();
+    ctx.strokeStyle = INK; ctx.lineWidth = 3.5; ctx.stroke();
+  }
+  function setupSlider(el, ch) {
+    const cv = document.createElement("canvas");
+    cv.width = SLIDER_W * TEX_SCALE; cv.height = SLIDER_H * TEX_SCALE;
+    el.appendChild(cv);
+    let dragging = false;
+    // .sq-slider is exactly SLIDER_W css px, so clientX maps 1:1 to logical units
+    const valAt = (e) => clamp01((e.clientX - el.getBoundingClientRect().left - SLIDER_PAD) / (SLIDER_W - 2 * SLIDER_PAD));
+    const apply = (e) => (ch === "music" ? setMusicVol(valAt(e), true) : setSfxVol(valAt(e), true));
+    el.addEventListener("pointerdown", (e) => { dragging = true; el.setPointerCapture(e.pointerId); audio(); apply(e); });
+    el.addEventListener("pointermove", (e) => { if (dragging) apply(e); });
+    el.addEventListener("pointerup", () => { if (dragging) { dragging = false; saveAudioPrefs(); } });
+    el.addEventListener("pointercancel", () => (dragging = false));
+    return cv.getContext("2d");
+  }
+  const musicSliderCtx = setupSlider(element.querySelector('.sq-slider[data-ch="music"]'), "music");
+  const sfxSliderCtx = setupSlider(element.querySelector('.sq-slider[data-ch="sfx"]'), "sfx");
+
+  // redraw the whole audio UI: bar icons always (slash when a channel is at 0),
+  // popover icons + sliders only while it's open. Re-jittered by the boil.
+  function syncAudioUI() {
+    if (!musicIconCtx) return;
+    const mOn = musicVol > 0, sOn = sfxVol > 0;
+    drawMusicIcon(musicIconCtx, mOn);
+    drawSpeakerIcon(sfxIconCtx, sOn);
+    if (popOpen) {
+      drawMusicIcon(volMusicCtx, mOn);
+      drawSpeakerIcon(volSfxCtx, sOn);
+      drawSlider(musicSliderCtx, musicVol);
+      drawSlider(sfxSliderCtx, sfxVol);
+      volMusicBtn.setAttribute("aria-pressed", String(!mOn));
+      volSfxBtn.setAttribute("aria-pressed", String(!sOn));
+    }
+  }
+
+  // ---- volume + mute state ----
+  function setMusicVol(v, live) {
+    musicVol = clamp01(v);
+    if (musicVol > 0) musicPrev = musicVol;
+    audio();
+    // snap the gain while dragging (responsive), ramp it on mute/unmute (smooth)
+    if (musicGain) { const g = musicBusGain(); live ? (musicGain.gain.value = g) : gsap.to(musicGain.gain, { value: g, duration: 0.18, overwrite: true }); }
+    musicVol > 0 ? startMusic() : stopMusic();
+    syncAudioUI();
+  }
+  function setSfxVol(v, live) {
+    sfxVol = clamp01(v);
+    if (sfxVol > 0) sfxPrev = sfxVol;
+    audio();
+    if (sfxGain) { const g = sfxBusGain(); live ? (sfxGain.gain.value = g) : gsap.to(sfxGain.gain, { value: g, duration: 0.18, overwrite: true }); }
+    syncAudioUI();
+  }
+  function toggleMute(ch) {
+    if (ch === "music") musicVol > 0 ? setMusicVol(0, false) : setMusicVol(musicPrev || 1, false);
+    else sfxVol > 0 ? setSfxVol(0, false) : setSfxVol(sfxPrev || 1, false);
+    saveAudioPrefs();
+  }
+
+  // ---- the mixer popover ----
+  let popOpen = false;
+  function openPop() {
+    popOpen = true;
+    popEl.classList.remove("sq-hidden");
+    musicBtn.setAttribute("aria-expanded", "true");
+    sfxBtn.setAttribute("aria-expanded", "true");
+    syncAudioUI();
+    gsap.fromTo(popEl,
+      { autoAlpha: 0, y: -6, scale: 0.96, rotation: -3 },
+      { autoAlpha: 1, y: 0, scale: 1, rotation: -1, duration: 0.22, ease: "back.out(1.7)" });
+  }
+  function closePop() {
+    if (!popOpen) return;
+    popOpen = false;
+    musicBtn.setAttribute("aria-expanded", "false");
+    sfxBtn.setAttribute("aria-expanded", "false");
+    gsap.to(popEl, {
+      autoAlpha: 0, y: -6, duration: 0.15,
+      onComplete: () => { popEl.classList.add("sq-hidden"); gsap.set(popEl, { clearProps: "opacity,transform,visibility" }); },
+    });
+  }
+  function togglePop() { popOpen ? closePop() : openPop(); }
+
+  // the bar icons now open the mixer; muting + levels live inside it
+  const onBarTap = () => { audio(); sfx.click(); togglePop(); };
+  musicBtn.addEventListener("click", onBarTap);
+  sfxBtn.addEventListener("click", onBarTap);
+  volMusicBtn.addEventListener("click", () => { toggleMute("music"); sfx.click(); });
+  volSfxBtn.addEventListener("click", () => { const was = sfxVol > 0; toggleMute("sfx"); if (!was) sfx.click(); });
+
+  // dismiss on an outside tap or Escape
+  document.addEventListener("pointerdown", (e) => { if (popOpen && !audioCluster.contains(e.target)) closePop(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePop(); });
+
+  syncAudioUI();
+
   // ---- game state ----
 
   const chipsEl = element.querySelector(".sq-chips");
@@ -721,10 +1193,19 @@
     chipsEl.appendChild(chip);
     sfx.pop();
     const dur = 0.16 + word.length * 0.06; // writing pace scales with word length
+    // The clip is just the left→right write-on; clear it once written so no
+    // residual inset lingers. A leftover right inset is a % of the chip's box,
+    // which for a 1-char tile (! ?) is too small to clear Caveat's forward
+    // slant — the lean would stay clipped forever.
     gsap.fromTo(
       text,
       { clipPath: "inset(-20% 100% -20% -10%)" },
-      { clipPath: "inset(-20% -10% -20% -10%)", duration: dur, ease: "none" }
+      {
+        clipPath: "inset(-20% -10% -20% -10%)",
+        duration: dur,
+        ease: "none",
+        clearProps: "clipPath",
+      }
     );
   }
 
@@ -755,6 +1236,13 @@
 
   function land(r, c) {
     pos = [r, c];
+
+    // a swap tile hops you to another board — costs no budget, adds no word.
+    const swap = swapTileAt(r, c);
+    if (swap) {
+      pressTile(swap);
+      return loadLevel(swap.targetId);
+    }
     used += 1;
 
     // landed keycap press
@@ -762,13 +1250,13 @@
     pressTile(t);
     const word = t.word;
 
-    // the hop that EXCEEDS the budget kills — even onto ⏎. The fatal
+    // the hop that EXCEEDS the budget kills — even onto "⏎". The fatal
     // word never makes it into the sentence: no chip.
     if (used > level.budget) return die();
 
     hud.update(used);
     setPose("idle");
-    if (word !== "start" && word !== "⏎") {
+    if (appendsWord(word)) {
       words.push(word);
       addChip(word);
     }
@@ -831,7 +1319,7 @@
 
     let res;
     try {
-      res = await server.judge({ words, targets: remainingTargets(), labels: level.labels });
+      res = await server.judge({ words, targets: remainingTargets(), level_id: level.id });
     } catch (err) {
       res = { ok: false, error: String(err) };
     }
@@ -904,7 +1392,7 @@
     const fills = [];
     for (const [label, p] of entries) {
       const row = document.createElement("div");
-      row.className = "sq-bar-row" + (checked.has(label) ? "" : " sq-bar-target");
+      row.className = "sq-bar-row" + (checkedOnThisLevel().has(label) ? "" : " sq-bar-target");
       const name = document.createElement("span");
       name.className = "sq-bar-label";
       name.textContent = label;
@@ -926,7 +1414,7 @@
     // a repeat of an already-checked emotion isn't a win — say so on the stamp
     stampEl.textContent =
       res.verdict === "win" ? `${res.winner}!`
-      : checked.has(res.winner) ? `${res.winner}, again.`
+      : checkedOnThisLevel().has(res.winner) ? `${res.winner}, again.`
       : `${res.winner}.`;
     stampEl.classList.toggle("sq-win", res.verdict === "win");
     stampEl.style.opacity = 0;
@@ -958,26 +1446,22 @@
 
   // ---- reset ----
 
-  function reset() {
-    gsap.to(overlayEl, {
-      autoAlpha: 0, duration: 0.25,
-      onComplete: () => {
-        overlayEl.classList.add("sq-hidden");
-        overlayEl.style.opacity = "";
-      },
-    });
-
+  // Clear the sentence/hops/HUD back to a fresh attempt on the current board.
+  function resetGameState() {
     words = [];
     used = 0;
     pos = [...level.start];
+    buffered = null;
     [...chipsEl.querySelectorAll(".sq-chip")].forEach((c) => c.remove());
     hud.reset();
     hintEl.textContent = remainingTargets().length
       ? HOP_HINT
       : "all targets collected! free hopping";
     gsap.to(hintEl, { opacity: 1, duration: 0.4 });
+  }
 
-    // poof back to start
+  // Poof the doodle back onto its start tile (used by "hop again").
+  function poofToStart() {
     const home = charPosFor(level.start[0], level.start[1]);
     gsap.timeline({ onComplete: () => (state = "idle") })
       .to(charMesh.scale, { x: 0, y: 0, duration: 0.18, ease: "power2.in" })
@@ -990,6 +1474,61 @@
       })
       .add(() => sfx.pop()) // poof back in
       .to(charMesh.scale, { x: 1, y: 1, duration: 0.28, ease: "back.out(2.5)" });
+  }
+
+  // Board intro / progression: transport the doodle straight onto the new
+  // board's start tile (the centre on most boards), then rain the other keycaps
+  // down from the sky around it, staggered by distance — the level assembles
+  // itself around the doodle, then play begins.
+  const DROP_H = 4.2; // how high above the board the keycaps start
+  function dropInBoard() {
+    const [sr, sc] = level.start;
+    const rest = -TILE_DEPTH / 2;
+
+    // the doodle materialises on the anchor tile (which stays put)
+    const home = charPosFor(sr, sc);
+    charMesh.scale.x = charMesh.scale.y = 0;
+    charGroup.position.set(home.x, CHAR_STANDOFF, home.z);
+    charMesh.position.y = 0;
+    charTilt.z = 0;
+    charMesh.material.opacity = 1;
+    setPose("idle");
+
+    // every other keycap falls in around it, nearest first
+    let last = 0.6;
+    for (const t of tiles) {
+      if (t.row === sr && t.col === sc) continue; // anchor stays put
+      const dist = Math.hypot(t.row - sr, t.col - sc);
+      const delay = 0.12 + dist * 0.075;
+      last = Math.max(last, delay + 0.55);
+      gsap.fromTo(
+        t.mesh.position,
+        { y: rest + DROP_H },
+        {
+          y: rest, duration: 0.55, ease: "bounce.out", delay,
+          onComplete: () => thud({ dur: 0.035, vol: 0.12, freq: 1100 }), // soft patter
+        }
+      );
+    }
+
+    // pop the doodle in a beat later, as if it arrived through the swap tile
+    gsap.timeline({ delay: 0.12 })
+      .add(() => sfx.pop())
+      .to(charMesh.scale, { x: 1, y: 1, duration: 0.3, ease: "back.out(2.5)" });
+
+    gsap.delayedCall(last, () => (state = "idle")); // play begins once it settles
+  }
+
+  function reset() {
+    gsap.to(overlayEl, {
+      autoAlpha: 0, duration: 0.25,
+      onComplete: () => {
+        overlayEl.classList.add("sq-hidden");
+        overlayEl.style.opacity = "";
+      },
+    });
+    resetGameState();
+    poofToStart();
   }
 
   againBtn.addEventListener("click", reset);
@@ -1009,6 +1548,7 @@
     if (used === 0) gsap.to(hintEl, { opacity: 0.35, duration: 0.6 });
     const nr = pos[0] + dir[0];
     const nc = pos[1] + dir[1];
+    if (swapTileAt(nr, nc)) return hopTo(nr, nc); // hop off the edge onto a swap tile
     if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) return bonk();
     hopTo(nr, nc);
   }
@@ -1055,7 +1595,14 @@
   stage.addEventListener("pointercancel", () => (swStart = null));
 
   // ---- camera framing ----
-  const VIEW = 7.0; // world units visible vertically
+  let viewUnits = 7.0; // world units visible vertically; sized to the board by reframe()
+  function reframe() {
+    // active swap tiles widen the board by one gapped column on each side they're on
+    const horiz = (COLS - 1) * SPACING + TILE_SIZE + swapTiles.length * (SPACING + SWAP_GAP);
+    const vert = (ROWS - 1) * SPACING + TILE_SIZE;
+    viewUnits = Math.max(horiz, vert) + 1.2; // a little margin around the board
+    resize();
+  }
   function resize() {
     const w = stage.clientWidth || 1;
     const h = stage.clientHeight || 1;
@@ -1065,7 +1612,8 @@
     // a touch more and aim higher, dropping the board into the clear middle band.
     const short = h <= 540;
     // fov stays 32°; dolly the camera so the board fits either way
-    const need = Math.max(VIEW, 6.8 / aspect, short ? 9.4 : 0);
+    // board-sized base, narrow-window fit, plus the landscape-phone zoom-out floor
+    const need = Math.max(viewUnits, (viewUnits - 0.2) / aspect, short ? 9.4 : 0);
     camera.position.z = need / 2 / Math.tan(THREE.MathUtils.degToRad(32 / 2));
     camera.aspect = aspect;
     camera.lookAt(0, short ? 0.55 : 0.25, 0);
@@ -1073,7 +1621,6 @@
     renderer.setSize(w, h);
   }
   new ResizeObserver(resize).observe(stage);
-  resize();
 
   // The board never moves, so the billboard's parent correction is constant.
   const _bbParentInv = new THREE.Quaternion();
@@ -1090,5 +1637,21 @@
     renderer.render(scene, camera);
   });
 
+  // Swap the active board: rebuild tiles + checklist + swap tiles, reframe, poof in.
+  function loadLevel(id) {
+    gsap.killTweensOf([charMesh.scale, charMesh.position, charGroup.position, charTilt, charMesh.material]);
+    overlayEl.classList.add("sq-hidden");
+    overlayEl.style.opacity = "";
+    level = LEVELS[id];
+    state = "hopping"; // block input until the poof lands (then -> idle)
+    buildTiles();
+    buildTargets();
+    buildSwapTiles();
+    resetGameState();
+    reframe();
+    dropInBoard();
+  }
+
+  loadLevel(data.home);
   root.dataset.state = "ready";
 })();

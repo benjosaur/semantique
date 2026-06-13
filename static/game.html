@@ -1,14 +1,28 @@
 <div class="sq-root" data-state="booting">
   <div class="sq-hud">
     <div class="sq-title">semantique</div>
-    <div class="sq-targets"><span class="sq-targets-label">targets: </span><span class="sq-target-list"></span></div>
-    <div class="sq-context" aria-label="hops">
-      <span class="sq-context-label">hops:</span>
-      <span class="sq-context-count"><b class="sq-ctx-used">0</b>/<b class="sq-ctx-cap"></b></span>
+    <div class="sq-targets"><span class="sq-target-list"></span></div>
+    <div class="sq-hud-right">
+      <div class="sq-context" aria-label="hops">
+        <span class="sq-context-count"><b class="sq-ctx-used">0</b>/<b class="sq-ctx-cap"></b></span>
+      </div>
+      <div class="sq-audio">
+        <button class="sq-audio-btn sq-music-btn" type="button" aria-label="music volume" aria-haspopup="dialog" aria-expanded="false"></button>
+        <button class="sq-audio-btn sq-sfx-btn" type="button" aria-label="sound effects volume" aria-haspopup="dialog" aria-expanded="false"></button>
+        <div class="sq-audio-pop sq-hidden" role="dialog" aria-label="audio levels">
+          <div class="sq-vol-row">
+            <button class="sq-vol-icon sq-vol-music" type="button" aria-label="mute music"></button>
+            <div class="sq-slider" data-ch="music"></div>
+          </div>
+          <div class="sq-vol-row">
+            <button class="sq-vol-icon sq-vol-sfx" type="button" aria-label="mute sound effects"></button>
+            <div class="sq-slider" data-ch="sfx"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
   <div class="sq-prompt">
-    <span class="sq-prompt-label">sentence:</span>
     <span class="sq-chips"></span>
   </div>
   <div class="sq-stage"></div>

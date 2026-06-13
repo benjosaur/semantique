@@ -5,8 +5,6 @@ import pytest
 
 from judge import assemble_sentence, renormalize
 
-LABELS = ["happy", "sad", "angry", "scared"]
-
 
 def test_assemble_sentence_attaches_punctuation():
     assert assemble_sentence(["great", "!"]) == "great!"
@@ -32,10 +30,12 @@ def test_renormalize_handles_large_negative_logprobs():
 
 BOARD_SENTENCES = [
     ("great!", "happy", True),
-    ("not sad", "happy", True),
     ("very great!", "happy", True),
-    ("great sad", "happy", False),
-    ("apple hurt not sad", "happy", False),
+    ("not sad", "happy", True),
+    ("hurt", "betrayed", True),
+    ("yikes", "surprised", True),
+    ("great!", "betrayed", False),
+    ("yikes", "happy", False),
 ]
 
 
@@ -44,7 +44,15 @@ BOARD_SENTENCES = [
 @pytest.mark.parametrize("sentence,target,should_win", BOARD_SENTENCES)
 def test_live_judge_on_board_sentences(sentence, target, should_win):
     from judge import score_labels
+    from levels import get_level
 
-    probs = renormalize(score_labels(sentence, LABELS))
+    # Mirror the in-game judge() call: every label is passed as a target (so the
+    # system prompt hints no single answer) and the board's own few-shot examples
+    # calibrate the read. This measures the discrimination players actually get,
+    # which is what makes labels like "betrayed"/"surprised" reachable at all.
+    level = get_level("emotion")
+    probs = renormalize(
+        score_labels(sentence, level.labels, targets=level.labels, examples=level.examples)
+    )
     winner = max(probs, key=probs.get)
     assert (winner == target) == should_win, f"{sentence!r} -> {probs}"

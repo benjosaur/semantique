@@ -24,9 +24,10 @@ and uses up one hop. Reach `⏎` and a small open LLM
 judges what emotion your sentence expresses. Check off every target emotion
 on the list to collect them all.
 
-The judge uses **structured output via exact logprob filtering**: a single
-forward pass on a self-hosted open model scores how likely each emotion word is
-as the answer, the distribution is masked to the allowed labels and
+The judge uses **structured output via exact logprob filtering**: the prompt is
+your sentence followed by `is the same as`, and a single forward pass on a
+self-hosted open model scores how likely each candidate label is as the answer.
+The next-token distribution is masked to the board's labels and
 softmax-renormalized — constrained decoding made visible as the verdict card's
 probability bars.
 
@@ -44,14 +45,26 @@ Built for the **Build Small Hackathon** (Thousand Token Wood track).
   double-stroke ink, Patrick Hand lettering) used as `CanvasTexture`s, re-drawn
   ~3×/s for a living "sketch boil". The character is a billboarded doodle with
   procedural idle/hop/think frames.
-- **The AI is load-bearing**: `judge.py` POSTs the sentence to a **Modal GPU
-  endpoint** (`modal_judge.py`) that runs one forward pass and reads the *exact*
-  probability of each emotion word — its whole token sequence scored by the model,
-  not just whatever lands in a hosted API's top-k. The four label logprobs are
-  masked and renormalized; argmax decides the verdict, the full distribution feeds
-  the UI. No top-20 cap, no missing-label fudge factor.
+- **The AI is load-bearing**: `judge.py` builds the prompt and POSTs it to a
+  **Modal GPU endpoint** (`modal_judge.py`) that runs one forward pass and reads
+  the *exact* probability of each candidate label — its whole token sequence scored
+  by the model, not just whatever lands in a hosted API's top-k. The label logprobs
+  are masked and renormalized; argmax decides the verdict, the full distribution
+  feeds the UI. No top-20 cap, no missing-label fudge factor.
 - **Model**: `openbmb/MiniCPM3-4B` (open weights, ≤4B → Tiny Titan), self-hosted
   on Modal. Swap it with the `MODEL_ID` in `modal_judge.py`.
+
+## Levels
+
+Boards live in `levels/`, one self-contained file each. A level declares its
+grid and its candidate `labels` — and that's it; the judge prompt (`sentence =`)
+is universal, so the label set alone makes the answer an emotion on one board
+and an animal on another. To add one, drop a `levels/<name>.py` that defines
+`LEVEL = Level(...)`; it's auto-discovered and registered (`order` sets play
+order, `home` flags the boot board). In the grid, `"start"` is the home tile,
+`""` an empty walkable tile, and `"="` a submit tile (a board can have several).
+Players walk between boards with the hand-drawn arrows once they've collected a
+target.
 
 ## Run locally
 
@@ -80,7 +93,8 @@ modal deploy modal_judge.py             # prod: stable URL
 
 `modal_judge.py` loads `openbmb/MiniCPM3-4B` on an L4, caches weights in a Modal
 Volume, and snapshots the loaded model to keep cold starts to a few seconds. The
-endpoint takes `{"sentence", "labels"}` and returns exact per-label logprobs.
+endpoint takes `{"messages", "labels"}` (the prompt is built in `judge.py`) and
+returns exact per-label logprobs.
 
 Protect it with a **proxy-auth token** (Modal dashboard → Settings → Proxy Auth
 Tokens) and put the URL + token in `.env` (local) or the Space secrets (deploy):

@@ -39,7 +39,9 @@
 
 .sq-stage {
   position: absolute;
-  inset: 0;
+  /* Reserve the bottom band the hint line lives in: the board reframes into the
+     shorter stage, so tiles never render under "arrow keys / WASD to hop". */
+  inset: 0 0 calc(max(18px, env(safe-area-inset-bottom)) + 34px) 0;
 }
 .sq-stage canvas {
   display: block;
@@ -55,6 +57,7 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
+  gap: 22px;
   padding: max(18px, env(safe-area-inset-top)) 28px 0;
   pointer-events: none;
   z-index: 2;
@@ -76,20 +79,22 @@
 }
 .sq-target-list {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 12px;
+  gap: 6px 8px;
   margin-left: 6px;
+  font-size: 20px;
 }
 .sq-target-item {
   position: relative;
   display: inline-block;
-  padding: 0 12px 2px;
-  border: 2.5px solid var(--ink);
+  padding: 0 8px 2px;
+  border: 2px solid var(--ink);
   border-radius: 255px 25px 225px 25px / 25px 225px 25px 255px;
   color: var(--ink);
   transform: rotate(var(--tilt, -1.5deg));
 }
-/* checked: fade the word, strike it through, green ✓ over the corner */
+/* checked: fade the word and strike it through */
 .sq-target-item.sq-checked {
   color: var(--ink-soft);
   border-color: var(--ink-soft);
@@ -105,28 +110,12 @@
   background: var(--ink-soft);
   transform: rotate(-4deg);
 }
-.sq-target-check {
-  position: absolute;
-  top: -14px;
-  right: -10px;
-  font-size: 30px;
-  font-weight: 700;
-  color: #2c6e3f;
-  opacity: 0;
-  pointer-events: none;
-}
 
-/* hops: a labelled "N/budget" counter */
+/* hops: a "N/budget" counter */
 .sq-context {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-.sq-context-label {
-  font-family: "Caveat", cursive;
-  font-size: 25px;
-  font-weight: 600;
-  color: var(--ink-soft);
 }
 .sq-context-count {
   font-family: "Caveat", cursive;
@@ -136,6 +125,83 @@
 }
 .sq-context-count.sq-full {
   color: var(--accent);
+}
+
+/* ---- audio toggles (music + sfx), grouped with the hop counter ---- */
+
+.sq-hud-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.sq-audio {
+  position: relative; /* anchors the mixer popover */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: auto; /* the HUD is pointer-events:none — re-enable hits here */
+}
+.sq-audio-btn {
+  display: block;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  line-height: 0;
+}
+.sq-audio-btn canvas {
+  display: block;
+  width: 30px;
+  height: 30px;
+}
+
+/* mixer popover: two hand-drawn volume sliders, one per channel */
+.sq-audio-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: #fffdf7;
+  border: 2.5px solid var(--ink);
+  border-radius: 18px 7px 20px 7px / 7px 20px 7px 18px;
+  box-shadow: 3px 4px 0 rgba(28, 27, 24, 0.12);
+  z-index: 5;
+}
+.sq-vol-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.sq-vol-icon {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  line-height: 0;
+}
+.sq-vol-icon canvas {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+.sq-slider {
+  width: 120px; /* must equal SLIDER_W in game.js — the drag math assumes it */
+  height: 26px;
+  cursor: pointer;
+  touch-action: none; /* dragging the nib must not scroll the page */
+}
+.sq-slider canvas {
+  display: block;
+  width: 120px;
+  height: 26px;
 }
 
 /* ---- prompt strip ---- */
@@ -152,13 +218,6 @@
   padding: 6px 28px 0;
   font-size: 22px;
   z-index: 2;
-}
-.sq-prompt-label {
-  font-family: "Caveat", cursive;
-  font-size: 30px;
-  font-weight: 600;
-  color: var(--ink-soft);
-  margin-right: 6px;
 }
 .sq-chips {
   display: inline-flex;
@@ -313,13 +372,13 @@
   .sq-targets { font-size: 14px; flex-shrink: 0; white-space: nowrap; }
   .sq-target-list { gap: 4px; margin-left: 3px; flex-wrap: nowrap; }
   .sq-target-item { padding: 0 5px 1px; }
-  .sq-target-check { font-size: 17px; top: -9px; right: -5px; }
   .sq-context { gap: 4px; flex-shrink: 0; }
-  .sq-context-label { font-size: 14px; }
   .sq-context-count { font-size: 17px; min-width: 30px; }
+  .sq-hud-right { gap: 8px; }
+  .sq-audio { gap: 4px; }
+  .sq-audio-btn, .sq-audio-btn canvas { width: 24px; height: 24px; }
 
   .sq-prompt { top: 52px; padding-left: 10px; padding-right: 10px; gap: 6px; }
-  .sq-prompt-label { font-size: 20px; }
   .sq-chips { gap: 9px; }
   .sq-chip { font-size: 26px; }
 
@@ -329,11 +388,4 @@
   .sq-card-sentence { font-size: 27px; }
   .sq-bar-row { grid-template-columns: 60px 1fr 44px; font-size: 17px; }
   .sq-stamp { font-size: 32px; top: -16px; right: -4px; } /* keep the sticker on-screen */
-}
-
-/* Tiny phones (~320px): the pills + both labels + hops can't share one line.
-   Drop the "targets:" word — the checklist pills speak for themselves — so the
-   hop counter stays on-screen. */
-@media (max-width: 340px) {
-  .sq-targets-label { display: none; }
 }
