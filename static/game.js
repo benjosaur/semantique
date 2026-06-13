@@ -638,14 +638,35 @@
     drawCharCanvas(charCtx, charPose);
     charTexture.needsUpdate = true;
     drawNavArrows();
+    drawAudioIcons();
   }, 340);
 
   // ---- sounds: a tiny Web Audio sketch-synth ----
   // Every cue is an oscillator doodle or a pinch of filtered noise — no
   // samples to load, and the bleeps match the hand-drawn look.
 
+  // Music + sfx each get their own toggle, so they ride independent buses off
+  // the master. Preferences (both default on) persist in localStorage; read
+  // them now so the buses come up at the right level when the context is built.
+  const AUDIO_PREF_KEY = "sq-audio";
+  function loadAudioPrefs() {
+    try { return JSON.parse(localStorage.getItem(AUDIO_PREF_KEY)) || {}; }
+    catch (e) { return {}; }
+  }
+  function saveAudioPrefs() {
+    try {
+      localStorage.setItem(AUDIO_PREF_KEY, JSON.stringify({ music: musicOn, sfx: sfxOn }));
+    } catch (e) { /* storage may be partitioned inside the HF iframe — ignore */ }
+  }
+  const _audioPrefs = loadAudioPrefs();
+  let musicOn = _audioPrefs.music !== false; // default on
+  let sfxOn = _audioPrefs.sfx !== false; // default on
+  const MUSIC_VOL = 0.6; // music bus level when on (multiplied by the 0.4 master)
+
   let ac = null;
   let masterGain = null;
+  let sfxGain = null; // every bleep routes here; the speaker toggle mutes it
+  let musicGain = null; // the background loop routes here; the ♫ toggle mutes it
   function audio() {
     if (!ac) {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -654,14 +675,24 @@
       masterGain = ac.createGain();
       masterGain.gain.value = 0.4;
       masterGain.connect(ac.destination);
+      sfxGain = ac.createGain();
+      sfxGain.gain.value = sfxOn ? 1 : 0;
+      sfxGain.connect(masterGain);
+      musicGain = ac.createGain();
+      musicGain.gain.value = musicOn ? MUSIC_VOL : 0;
+      musicGain.connect(masterGain);
     }
     if (ac.state === "suspended") ac.resume();
     return ac;
   }
-  // Sounds often fire from gsap timelines (outside any user gesture), so
-  // unlock the context on real gestures — these also resume after suspension.
-  document.addEventListener("keydown", audio);
-  document.addEventListener("pointerdown", audio);
+  // Sounds often fire from gsap timelines (outside any user gesture), so unlock
+  // the context on real gestures — these also resume after suspension, and kick
+  // off the music loop the first time (browsers block audio until a gesture).
+  function unlockAudio() {
+    if (audio() && musicOn) startMusic();
+  }
+  document.addEventListener("keydown", unlockAudio);
+  document.addEventListener("pointerdown", unlockAudio);
 
   // one swept note with a fast attack and an exponential die-off
   function tone({ type = "triangle", from = 440, to = from, dur = 0.12, vol = 0.3, at = 0 }) {
@@ -675,7 +706,7 @@
     g.gain.setValueAtTime(0, t0);
     g.gain.linearRampToValueAtTime(vol, t0 + 0.008);
     g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-    osc.connect(g).connect(masterGain);
+    osc.connect(g).connect(sfxGain);
     osc.start(t0);
     osc.stop(t0 + dur + 0.05);
   }
@@ -695,7 +726,7 @@
     filter.frequency.value = freq;
     const g = ac.createGain();
     g.gain.value = vol;
-    src.connect(filter).connect(g).connect(masterGain);
+    src.connect(filter).connect(g).connect(sfxGain);
     src.start(t0);
   }
 
@@ -744,6 +775,177 @@
       }
     },
   };
+
+  // ---- background music: a gentle generative pentatonic doodle ----
+  // Same "no samples" spirit as the sfx — a soft melody noodles around a
+  // C-major pentatonic (so nothing ever clashes) over a quiet I–vi–IV–V bass.
+  // A lookahead scheduler clocks notes off ac.currentTime so it never drifts.
+
+  // C-major pentatonic, C4 up to G5 — the melody random-walks this ladder.
+  const PENTA = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99];
+  const BASS = [130.81, 110.0, 87.31, 98.0]; // one root per bar: C, A, F, G
+  const MUSIC_BPM = 84;
+  const STEP_DUR = 60 / MUSIC_BPM / 2; // eighth-note grid
+  const STEPS = 16; // loop length — 4 bars of 4 eighths
+
+  // one warm, gently-enveloped voice through a lowpass: no clicks, no glare
+  function musicNote(freq, at, dur, vol, type) {
+    if (!musicGain) return;
+    const osc = ac.createOscillator();
+    const g = ac.createGain();
+    const lp = ac.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 2000;
+    osc.type = type || "triangle";
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(0, at);
+    g.gain.linearRampToValueAtTime(vol, at + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    osc.connect(lp).connect(g).connect(musicGain);
+    osc.start(at);
+    osc.stop(at + dur + 0.05);
+  }
+
+  let musicTimer = null;
+  let musicStep = 0;
+  let musicNextTime = 0;
+  let melodyIdx = 4; // start mid-ladder (A4)
+
+  // Schedule everything that falls inside the ~120ms lookahead, then advance.
+  function scheduleMusic() {
+    if (!ac) return;
+    while (musicNextTime < ac.currentTime + 0.12) {
+      const bar = Math.floor(musicStep / 4) % BASS.length;
+      if (musicStep % 4 === 0) musicNote(BASS[bar], musicNextTime, 0.9, 0.32, "sine"); // bass on the downbeat
+      // melody: a smooth random walk with rests for a relaxed, sketchy feel
+      if (Math.random() < 0.62) {
+        const stride = (Math.floor(Math.random() * 3) - 1) * (Math.random() < 0.3 ? 2 : 1);
+        melodyIdx = Math.max(0, Math.min(PENTA.length - 1, melodyIdx + stride));
+        const long = Math.random() < 0.25;
+        musicNote(PENTA[melodyIdx], musicNextTime, STEP_DUR * (long ? 1.8 : 0.9), 0.17);
+      }
+      if (Math.random() < 0.05) musicNote(PENTA[PENTA.length - 1] * 2, musicNextTime, 0.3, 0.07); // rare high sparkle
+      musicNextTime += STEP_DUR;
+      musicStep = (musicStep + 1) % STEPS;
+    }
+  }
+
+  function startMusic() {
+    if (musicTimer || !audio()) return;
+    musicNextTime = ac.currentTime + 0.1;
+    musicStep = 0;
+    musicTimer = setInterval(scheduleMusic, 25);
+  }
+  function stopMusic() {
+    if (musicTimer) clearInterval(musicTimer);
+    musicTimer = null;
+  }
+
+  // ---- audio toggles: hand-drawn ♫ + speaker doodles in the top-right ----
+  // Same trick as the nav arrows: bake each icon to a little canvas with the
+  // wobbly-ink helpers and let the boil re-jitter it. A red slash = muted.
+  const ICON = 30; // logical canvas units (square)
+  const ACCENT = "#b3402e";
+
+  function makeIconCanvas(host) {
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = ICON * TEX_SCALE;
+    host.appendChild(cv);
+    return cv;
+  }
+
+  // the shared "off" mark — a wobbly accent slash struck across the icon
+  function drawSlash(ctx) {
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 3;
+    wobblyLine(ctx, 5, 7, ICON - 5, ICON - 7, 1.3);
+    ctx.stroke();
+  }
+
+  function drawMusicIcon(ctx, on) {
+    ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
+    ctx.clearRect(0, 0, ICON, ICON);
+    ctx.lineJoin = ctx.lineCap = "round";
+    ctx.globalAlpha = on ? 1 : 0.5;
+    ctx.strokeStyle = ctx.fillStyle = on ? INK : INK_SOFT;
+    // two stems joined by a slanted beam — the classic two-quaver ♫
+    const aStem = [13.5, 6.5], bStem = [24.5, 3.5];
+    ctx.lineWidth = 2.4;
+    wobblyLine(ctx, aStem[0], aStem[1], aStem[0], 21, 0.7); ctx.stroke();
+    wobblyLine(ctx, bStem[0], bStem[1], bStem[0], 18, 0.7); ctx.stroke();
+    ctx.lineWidth = 3.6;
+    wobblyLine(ctx, aStem[0], aStem[1], bStem[0], bStem[1], 0.7); ctx.stroke();
+    for (const [hx, hy] of [[10, 22], [21, 19]]) { // filled, slightly tilted note heads
+      ctx.beginPath();
+      ctx.ellipse(hx + rand(-0.5, 0.5), hy + rand(-0.5, 0.5), 4.2, 3.1, -0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (!on) drawSlash(ctx);
+    ctx.globalAlpha = 1;
+  }
+
+  function drawSpeakerIcon(ctx, on) {
+    ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
+    ctx.clearRect(0, 0, ICON, ICON);
+    ctx.lineJoin = ctx.lineCap = "round";
+    ctx.globalAlpha = on ? 1 : 0.5;
+    // speaker body + cone as one wobbly outline
+    const pts = [[6, 12], [6, 18], [10, 18], [16, 24], [16, 6], [10, 12]];
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => {
+      const jx = x + rand(-0.5, 0.5), jy = y + rand(-0.5, 0.5);
+      i ? ctx.lineTo(jx, jy) : ctx.moveTo(jx, jy);
+    });
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255,253,247,0.9)";
+    ctx.fill();
+    ctx.lineWidth = 2.4;
+    ctx.strokeStyle = on ? INK : INK_SOFT;
+    ctx.stroke();
+    if (on) { // sound waves only when the sfx are on
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(18, 15, 3.5, -0.9, 0.9); ctx.stroke();
+      ctx.beginPath(); ctx.arc(18, 15, 6.5, -0.85, 0.85); ctx.stroke();
+    }
+    if (!on) drawSlash(ctx);
+    ctx.globalAlpha = 1;
+  }
+
+  const musicBtn = element.querySelector(".sq-music-btn");
+  const sfxBtn = element.querySelector(".sq-sfx-btn");
+  const musicIconCtx = makeIconCanvas(musicBtn).getContext("2d");
+  const sfxIconCtx = makeIconCanvas(sfxBtn).getContext("2d");
+
+  function drawAudioIcons() {
+    if (!musicIconCtx) return;
+    drawMusicIcon(musicIconCtx, musicOn);
+    drawSpeakerIcon(sfxIconCtx, sfxOn);
+  }
+  function syncAudioButtons() {
+    musicBtn.setAttribute("aria-pressed", String(musicOn));
+    sfxBtn.setAttribute("aria-pressed", String(sfxOn));
+    drawAudioIcons();
+  }
+
+  musicBtn.addEventListener("click", () => {
+    musicOn = !musicOn;
+    audio();
+    if (musicGain) gsap.to(musicGain.gain, { value: musicOn ? MUSIC_VOL : 0, duration: 0.4, overwrite: true });
+    musicOn ? startMusic() : stopMusic();
+    sfx.click();
+    syncAudioButtons();
+    saveAudioPrefs();
+  });
+  sfxBtn.addEventListener("click", () => {
+    sfxOn = !sfxOn;
+    audio();
+    if (sfxGain) gsap.to(sfxGain.gain, { value: sfxOn ? 1 : 0, duration: 0.25, overwrite: true });
+    if (sfxOn) sfx.click(); // a confirming tap, only when switching on
+    syncAudioButtons();
+    saveAudioPrefs();
+  });
+  syncAudioButtons();
 
   // ---- game state ----
 

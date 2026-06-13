@@ -125,6 +125,35 @@
   color: var(--accent);
 }
 
+/* ---- audio toggles (music + sfx), grouped with the hop counter ---- */
+
+.sq-hud-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.sq-audio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: auto; /* the HUD is pointer-events:none — re-enable hits here */
+}
+.sq-audio-btn {
+  display: block;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  line-height: 0;
+}
+.sq-audio-btn canvas {
+  display: block;
+  width: 30px;
+  height: 30px;
+}
+
 /* ---- prompt strip ---- */
 
 .sq-prompt {
@@ -336,6 +365,9 @@
   .sq-target-item { padding: 0 5px 1px; }
   .sq-context { gap: 4px; flex-shrink: 0; }
   .sq-context-count { font-size: 17px; min-width: 30px; }
+  .sq-hud-right { gap: 8px; }
+  .sq-audio { gap: 4px; }
+  .sq-audio-btn, .sq-audio-btn canvas { width: 24px; height: 24px; }
 
   .sq-prompt { top: 52px; padding-left: 10px; padding-right: 10px; gap: 6px; }
   .sq-chips { gap: 9px; }
