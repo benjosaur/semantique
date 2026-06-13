@@ -127,6 +127,83 @@
   color: var(--accent);
 }
 
+/* ---- audio toggles (music + sfx), grouped with the hop counter ---- */
+
+.sq-hud-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.sq-audio {
+  position: relative; /* anchors the mixer popover */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: auto; /* the HUD is pointer-events:none — re-enable hits here */
+}
+.sq-audio-btn {
+  display: block;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  line-height: 0;
+}
+.sq-audio-btn canvas {
+  display: block;
+  width: 30px;
+  height: 30px;
+}
+
+/* mixer popover: two hand-drawn volume sliders, one per channel */
+.sq-audio-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: #fffdf7;
+  border: 2.5px solid var(--ink);
+  border-radius: 18px 7px 20px 7px / 7px 20px 7px 18px;
+  box-shadow: 3px 4px 0 rgba(28, 27, 24, 0.12);
+  z-index: 5;
+}
+.sq-vol-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.sq-vol-icon {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  line-height: 0;
+}
+.sq-vol-icon canvas {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+.sq-slider {
+  width: 120px; /* must equal SLIDER_W in game.js — the drag math assumes it */
+  height: 26px;
+  cursor: pointer;
+  touch-action: none; /* dragging the nib must not scroll the page */
+}
+.sq-slider canvas {
+  display: block;
+  width: 120px;
+  height: 26px;
+}
+
 /* ---- prompt strip ---- */
 
 .sq-prompt {
@@ -338,6 +415,9 @@
   .sq-target-item { padding: 0 5px 1px; }
   .sq-context { gap: 4px; flex-shrink: 0; }
   .sq-context-count { font-size: 17px; min-width: 30px; }
+  .sq-hud-right { gap: 8px; }
+  .sq-audio { gap: 4px; }
+  .sq-audio-btn, .sq-audio-btn canvas { width: 24px; height: 24px; }
 
   .sq-prompt { top: 52px; padding-left: 10px; padding-right: 10px; gap: 6px; }
   .sq-chips { gap: 9px; }

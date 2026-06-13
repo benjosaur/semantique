@@ -656,14 +656,43 @@
     drawCharCanvas(charCtx, charPose);
     charTexture.needsUpdate = true;
     drawNavArrows();
+    syncAudioUI();
   }, 340);
 
   // ---- sounds: a tiny Web Audio sketch-synth ----
   // Every cue is an oscillator doodle or a pinch of filtered noise — no
   // samples to load, and the bleeps match the hand-drawn look.
 
+  // Music and sfx each carry a volume (0..1) and ride their own bus off the
+  // master, so the in-game mixer can level/mute them independently. Levels
+  // persist in localStorage; read them now so the buses come up at the right
+  // level when the context is built.
+  const AUDIO_PREF_KEY = "sq-audio";
+  const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+  function loadAudioPrefs() {
+    try { return JSON.parse(localStorage.getItem(AUDIO_PREF_KEY)) || {}; }
+    catch (e) { return {}; }
+  }
+  function saveAudioPrefs() {
+    try { localStorage.setItem(AUDIO_PREF_KEY, JSON.stringify({ musicVol, sfxVol })); }
+    catch (e) { /* storage may be partitioned inside the HF iframe — ignore */ }
+  }
+  const _ap = loadAudioPrefs();
+  // migrate the old on/off booleans ({music,sfx}) to volumes when present
+  let musicVol = typeof _ap.musicVol === "number" ? clamp01(_ap.musicVol) : (_ap.music === false ? 0 : 1);
+  let sfxVol = typeof _ap.sfxVol === "number" ? clamp01(_ap.sfxVol) : (_ap.sfx === false ? 0 : 1);
+  let musicPrev = musicVol || 1; // level to restore when un-muting
+  let sfxPrev = sfxVol || 1;
+  // perceived loudness is ~quadratic, so square the slider before it hits gain
+  const MUSIC_MAX = 0.6, SFX_MAX = 1.0; // bus level at full slider (× 0.4 master)
+  const taper = (v) => v * v;
+  const musicBusGain = () => MUSIC_MAX * taper(musicVol);
+  const sfxBusGain = () => SFX_MAX * taper(sfxVol);
+
   let ac = null;
   let masterGain = null;
+  let sfxGain = null; // every bleep routes here; the mixer levels it
+  let musicGain = null; // the background loop routes here
   function audio() {
     if (!ac) {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -672,14 +701,24 @@
       masterGain = ac.createGain();
       masterGain.gain.value = 0.4;
       masterGain.connect(ac.destination);
+      sfxGain = ac.createGain();
+      sfxGain.gain.value = sfxBusGain();
+      sfxGain.connect(masterGain);
+      musicGain = ac.createGain();
+      musicGain.gain.value = musicBusGain();
+      musicGain.connect(masterGain);
     }
     if (ac.state === "suspended") ac.resume();
     return ac;
   }
-  // Sounds often fire from gsap timelines (outside any user gesture), so
-  // unlock the context on real gestures — these also resume after suspension.
-  document.addEventListener("keydown", audio);
-  document.addEventListener("pointerdown", audio);
+  // Sounds often fire from gsap timelines (outside any user gesture), so unlock
+  // the context on real gestures — these also resume after suspension, and kick
+  // off the music loop the first time (browsers block audio until a gesture).
+  function unlockAudio() {
+    if (audio() && musicVol > 0) startMusic();
+  }
+  document.addEventListener("keydown", unlockAudio);
+  document.addEventListener("pointerdown", unlockAudio);
 
   // one swept note with a fast attack and an exponential die-off
   function tone({ type = "triangle", from = 440, to = from, dur = 0.12, vol = 0.3, at = 0 }) {
@@ -693,7 +732,7 @@
     g.gain.setValueAtTime(0, t0);
     g.gain.linearRampToValueAtTime(vol, t0 + 0.008);
     g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-    osc.connect(g).connect(masterGain);
+    osc.connect(g).connect(sfxGain);
     osc.start(t0);
     osc.stop(t0 + dur + 0.05);
   }
@@ -713,7 +752,7 @@
     filter.frequency.value = freq;
     const g = ac.createGain();
     g.gain.value = vol;
-    src.connect(filter).connect(g).connect(masterGain);
+    src.connect(filter).connect(g).connect(sfxGain);
     src.start(t0);
   }
 
@@ -762,6 +801,263 @@
       }
     },
   };
+
+  // ---- background music: a gentle generative pentatonic doodle ----
+  // Same "no samples" spirit as the sfx — a soft melody noodles around a
+  // C-major pentatonic (so nothing ever clashes) over a quiet I–vi–IV–V bass.
+  // A lookahead scheduler clocks notes off ac.currentTime so it never drifts.
+
+  // C-major pentatonic, C4 up to G5 — the melody random-walks this ladder.
+  const PENTA = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99];
+  const BASS = [130.81, 110.0, 87.31, 98.0]; // one root per bar: C, A, F, G
+  const MUSIC_BPM = 84;
+  const STEP_DUR = 60 / MUSIC_BPM / 2; // eighth-note grid
+  const STEPS = 16; // loop length — 4 bars of 4 eighths
+
+  // one warm, gently-enveloped voice through a lowpass: no clicks, no glare
+  function musicNote(freq, at, dur, vol, type) {
+    if (!musicGain) return;
+    const osc = ac.createOscillator();
+    const g = ac.createGain();
+    const lp = ac.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 2000;
+    osc.type = type || "triangle";
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(0, at);
+    g.gain.linearRampToValueAtTime(vol, at + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    osc.connect(lp).connect(g).connect(musicGain);
+    osc.start(at);
+    osc.stop(at + dur + 0.05);
+  }
+
+  let musicTimer = null;
+  let musicStep = 0;
+  let musicNextTime = 0;
+  let melodyIdx = 4; // start mid-ladder (A4)
+
+  // Schedule everything that falls inside the ~120ms lookahead, then advance.
+  function scheduleMusic() {
+    if (!ac) return;
+    while (musicNextTime < ac.currentTime + 0.12) {
+      const bar = Math.floor(musicStep / 4) % BASS.length;
+      if (musicStep % 4 === 0) musicNote(BASS[bar], musicNextTime, 0.9, 0.32, "sine"); // bass on the downbeat
+      // melody: a smooth random walk with rests for a relaxed, sketchy feel
+      if (Math.random() < 0.62) {
+        const stride = (Math.floor(Math.random() * 3) - 1) * (Math.random() < 0.3 ? 2 : 1);
+        melodyIdx = Math.max(0, Math.min(PENTA.length - 1, melodyIdx + stride));
+        const long = Math.random() < 0.25;
+        musicNote(PENTA[melodyIdx], musicNextTime, STEP_DUR * (long ? 1.8 : 0.9), 0.17);
+      }
+      if (Math.random() < 0.05) musicNote(PENTA[PENTA.length - 1] * 2, musicNextTime, 0.3, 0.07); // rare high sparkle
+      musicNextTime += STEP_DUR;
+      musicStep = (musicStep + 1) % STEPS;
+    }
+  }
+
+  function startMusic() {
+    if (musicTimer || !audio()) return;
+    musicNextTime = ac.currentTime + 0.1;
+    musicStep = 0;
+    musicTimer = setInterval(scheduleMusic, 25);
+  }
+  function stopMusic() {
+    if (musicTimer) clearInterval(musicTimer);
+    musicTimer = null;
+  }
+
+  // ---- audio toggles: hand-drawn ♫ + speaker doodles in the top-right ----
+  // Same trick as the nav arrows: bake each icon to a little canvas with the
+  // wobbly-ink helpers and let the boil re-jitter it. A red slash = muted.
+  const ICON = 30; // logical canvas units (square)
+  const ACCENT = "#b3402e";
+
+  function makeIconCanvas(host) {
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = ICON * TEX_SCALE;
+    host.appendChild(cv);
+    return cv;
+  }
+
+  // the shared "off" mark — a wobbly accent slash struck across the icon
+  function drawSlash(ctx) {
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 3;
+    wobblyLine(ctx, 5, 7, ICON - 5, ICON - 7, 1.3);
+    ctx.stroke();
+  }
+
+  function drawMusicIcon(ctx, on) {
+    ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
+    ctx.clearRect(0, 0, ICON, ICON);
+    ctx.lineJoin = ctx.lineCap = "round";
+    ctx.globalAlpha = on ? 1 : 0.5;
+    ctx.strokeStyle = ctx.fillStyle = on ? INK : INK_SOFT;
+    // two stems joined by a slanted beam — the classic two-quaver ♫
+    const aStem = [13.5, 6.5], bStem = [24.5, 3.5];
+    ctx.lineWidth = 2.4;
+    wobblyLine(ctx, aStem[0], aStem[1], aStem[0], 21, 0.7); ctx.stroke();
+    wobblyLine(ctx, bStem[0], bStem[1], bStem[0], 18, 0.7); ctx.stroke();
+    ctx.lineWidth = 3.6;
+    wobblyLine(ctx, aStem[0], aStem[1], bStem[0], bStem[1], 0.7); ctx.stroke();
+    for (const [hx, hy] of [[10, 22], [21, 19]]) { // filled, slightly tilted note heads
+      ctx.beginPath();
+      ctx.ellipse(hx + rand(-0.5, 0.5), hy + rand(-0.5, 0.5), 4.2, 3.1, -0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (!on) drawSlash(ctx);
+    ctx.globalAlpha = 1;
+  }
+
+  function drawSpeakerIcon(ctx, on) {
+    ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
+    ctx.clearRect(0, 0, ICON, ICON);
+    ctx.lineJoin = ctx.lineCap = "round";
+    ctx.globalAlpha = on ? 1 : 0.5;
+    // speaker body + cone as one wobbly outline
+    const pts = [[6, 12], [6, 18], [10, 18], [16, 24], [16, 6], [10, 12]];
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => {
+      const jx = x + rand(-0.5, 0.5), jy = y + rand(-0.5, 0.5);
+      i ? ctx.lineTo(jx, jy) : ctx.moveTo(jx, jy);
+    });
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255,253,247,0.9)";
+    ctx.fill();
+    ctx.lineWidth = 2.4;
+    ctx.strokeStyle = on ? INK : INK_SOFT;
+    ctx.stroke();
+    if (on) { // sound waves only when the sfx are on
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(18, 15, 3.5, -0.9, 0.9); ctx.stroke();
+      ctx.beginPath(); ctx.arc(18, 15, 6.5, -0.85, 0.85); ctx.stroke();
+    }
+    if (!on) drawSlash(ctx);
+    ctx.globalAlpha = 1;
+  }
+
+  const audioCluster = element.querySelector(".sq-audio");
+  const musicBtn = element.querySelector(".sq-music-btn");
+  const sfxBtn = element.querySelector(".sq-sfx-btn");
+  const popEl = element.querySelector(".sq-audio-pop");
+  const volMusicBtn = element.querySelector(".sq-vol-music");
+  const volSfxBtn = element.querySelector(".sq-vol-sfx");
+  const musicIconCtx = makeIconCanvas(musicBtn).getContext("2d");
+  const sfxIconCtx = makeIconCanvas(sfxBtn).getContext("2d");
+  const volMusicCtx = makeIconCanvas(volMusicBtn).getContext("2d");
+  const volSfxCtx = makeIconCanvas(volSfxBtn).getContext("2d");
+
+  // ---- volume sliders: a wobbly ink rule with a filled level + draggable nib ----
+  const SLIDER_W = 120, SLIDER_H = 26, SLIDER_PAD = 11;
+  function drawSlider(ctx, val) {
+    ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
+    ctx.clearRect(0, 0, SLIDER_W, SLIDER_H);
+    ctx.lineJoin = ctx.lineCap = "round";
+    const y = SLIDER_H / 2, x0 = SLIDER_PAD, x1 = SLIDER_W - SLIDER_PAD;
+    const nx = x0 + clamp01(val) * (x1 - x0);
+    ctx.globalAlpha = 0.5; ctx.strokeStyle = INK_SOFT; ctx.lineWidth = 3; // faint full track
+    wobblyLine(ctx, x0, y, x1, y, 1.0); ctx.stroke();
+    ctx.globalAlpha = 1;
+    if (nx > x0 + 0.5) { ctx.strokeStyle = INK; ctx.lineWidth = 4.5; wobblyLine(ctx, x0, y, nx, y, 0.9); ctx.stroke(); } // inked level
+    wobblyCircle(ctx, nx, y, 6.5, 1.1); // the nib
+    ctx.fillStyle = "rgba(255,253,247,0.95)"; ctx.fill();
+    ctx.strokeStyle = INK; ctx.lineWidth = 3.5; ctx.stroke();
+  }
+  function setupSlider(el, ch) {
+    const cv = document.createElement("canvas");
+    cv.width = SLIDER_W * TEX_SCALE; cv.height = SLIDER_H * TEX_SCALE;
+    el.appendChild(cv);
+    let dragging = false;
+    // .sq-slider is exactly SLIDER_W css px, so clientX maps 1:1 to logical units
+    const valAt = (e) => clamp01((e.clientX - el.getBoundingClientRect().left - SLIDER_PAD) / (SLIDER_W - 2 * SLIDER_PAD));
+    const apply = (e) => (ch === "music" ? setMusicVol(valAt(e), true) : setSfxVol(valAt(e), true));
+    el.addEventListener("pointerdown", (e) => { dragging = true; el.setPointerCapture(e.pointerId); audio(); apply(e); });
+    el.addEventListener("pointermove", (e) => { if (dragging) apply(e); });
+    el.addEventListener("pointerup", () => { if (dragging) { dragging = false; saveAudioPrefs(); } });
+    el.addEventListener("pointercancel", () => (dragging = false));
+    return cv.getContext("2d");
+  }
+  const musicSliderCtx = setupSlider(element.querySelector('.sq-slider[data-ch="music"]'), "music");
+  const sfxSliderCtx = setupSlider(element.querySelector('.sq-slider[data-ch="sfx"]'), "sfx");
+
+  // redraw the whole audio UI: bar icons always (slash when a channel is at 0),
+  // popover icons + sliders only while it's open. Re-jittered by the boil.
+  function syncAudioUI() {
+    if (!musicIconCtx) return;
+    const mOn = musicVol > 0, sOn = sfxVol > 0;
+    drawMusicIcon(musicIconCtx, mOn);
+    drawSpeakerIcon(sfxIconCtx, sOn);
+    if (popOpen) {
+      drawMusicIcon(volMusicCtx, mOn);
+      drawSpeakerIcon(volSfxCtx, sOn);
+      drawSlider(musicSliderCtx, musicVol);
+      drawSlider(sfxSliderCtx, sfxVol);
+      volMusicBtn.setAttribute("aria-pressed", String(!mOn));
+      volSfxBtn.setAttribute("aria-pressed", String(!sOn));
+    }
+  }
+
+  // ---- volume + mute state ----
+  function setMusicVol(v, live) {
+    musicVol = clamp01(v);
+    if (musicVol > 0) musicPrev = musicVol;
+    audio();
+    // snap the gain while dragging (responsive), ramp it on mute/unmute (smooth)
+    if (musicGain) { const g = musicBusGain(); live ? (musicGain.gain.value = g) : gsap.to(musicGain.gain, { value: g, duration: 0.18, overwrite: true }); }
+    musicVol > 0 ? startMusic() : stopMusic();
+    syncAudioUI();
+  }
+  function setSfxVol(v, live) {
+    sfxVol = clamp01(v);
+    if (sfxVol > 0) sfxPrev = sfxVol;
+    audio();
+    if (sfxGain) { const g = sfxBusGain(); live ? (sfxGain.gain.value = g) : gsap.to(sfxGain.gain, { value: g, duration: 0.18, overwrite: true }); }
+    syncAudioUI();
+  }
+  function toggleMute(ch) {
+    if (ch === "music") musicVol > 0 ? setMusicVol(0, false) : setMusicVol(musicPrev || 1, false);
+    else sfxVol > 0 ? setSfxVol(0, false) : setSfxVol(sfxPrev || 1, false);
+    saveAudioPrefs();
+  }
+
+  // ---- the mixer popover ----
+  let popOpen = false;
+  function openPop() {
+    popOpen = true;
+    popEl.classList.remove("sq-hidden");
+    musicBtn.setAttribute("aria-expanded", "true");
+    sfxBtn.setAttribute("aria-expanded", "true");
+    syncAudioUI();
+    gsap.fromTo(popEl,
+      { autoAlpha: 0, y: -6, scale: 0.96, rotation: -3 },
+      { autoAlpha: 1, y: 0, scale: 1, rotation: -1, duration: 0.22, ease: "back.out(1.7)" });
+  }
+  function closePop() {
+    if (!popOpen) return;
+    popOpen = false;
+    musicBtn.setAttribute("aria-expanded", "false");
+    sfxBtn.setAttribute("aria-expanded", "false");
+    gsap.to(popEl, {
+      autoAlpha: 0, y: -6, duration: 0.15,
+      onComplete: () => { popEl.classList.add("sq-hidden"); gsap.set(popEl, { clearProps: "opacity,transform,visibility" }); },
+    });
+  }
+  function togglePop() { popOpen ? closePop() : openPop(); }
+
+  // the bar icons now open the mixer; muting + levels live inside it
+  const onBarTap = () => { audio(); sfx.click(); togglePop(); };
+  musicBtn.addEventListener("click", onBarTap);
+  sfxBtn.addEventListener("click", onBarTap);
+  volMusicBtn.addEventListener("click", () => { toggleMute("music"); sfx.click(); });
+  volSfxBtn.addEventListener("click", () => { const was = sfxVol > 0; toggleMute("sfx"); if (!was) sfx.click(); });
+
+  // dismiss on an outside tap or Escape
+  document.addEventListener("pointerdown", (e) => { if (popOpen && !audioCluster.contains(e.target)) closePop(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePop(); });
+
+  syncAudioUI();
 
   // ---- game state ----
 
