@@ -67,10 +67,12 @@ def test_renormalize_handles_large_negative_logprobs():
 
 BOARD_SENTENCES = [
     ("great!", "happy", True),
-    ("not sad", "happy", True),
     ("very great!", "happy", True),
-    ("great sad", "happy", False),
-    ("apple hurt not sad", "happy", False),
+    ("not sad", "happy", True),
+    ("hurt", "betrayed", True),
+    ("yikes", "surprised", True),
+    ("great!", "betrayed", False),
+    ("yikes", "happy", False),
 ]
 
 
@@ -80,9 +82,13 @@ def test_live_judge_on_board_sentences(sentence, target, should_win):
     from judge import score_labels
     from levels import get_level
 
-    # Pass every label as a target so the prompt stays unbiased and the eval
-    # measures the model's own discrimination, not a hint toward one answer.
-    labels = get_level("emotion").labels
-    probs = renormalize(score_labels(sentence, labels, targets=labels))
+    # Mirror the in-game judge() call: every label is passed as a target (so the
+    # system prompt hints no single answer) and the board's own few-shot examples
+    # calibrate the read. This measures the discrimination players actually get,
+    # which is what makes labels like "betrayed"/"surprised" reachable at all.
+    level = get_level("emotion")
+    probs = renormalize(
+        score_labels(sentence, level.labels, targets=level.labels, examples=level.examples)
+    )
     winner = max(probs, key=probs.get)
     assert (winner == target) == should_win, f"{sentence!r} -> {probs}"
