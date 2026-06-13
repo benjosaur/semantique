@@ -1,8 +1,11 @@
-"""Emotion judge: structured output via logprob filtering over an LLM API.
+"""The judge: structured output via logprob filtering over an LLM API.
 
-One chat-completion call with max_tokens=1 and top_logprobs; the next-token
-distribution is masked to the allowed emotion labels and renormalized with a
-softmax — i.e. constrained decoding, enforced client-side.
+The prompt is just the assembled sentence followed by " =", mirroring the
+board's "=" submit tile. One chat-completion call with max_tokens=1 and
+top_logprobs; the next-token distribution is masked to the level's candidate
+labels and renormalized with a softmax — i.e. constrained decoding, enforced
+client-side. The candidate set is what makes the answer an emotion on one board
+and an animal on another; no instructions or examples needed.
 
 Swapping to a local model later only requires reimplementing score_labels().
 """
@@ -13,17 +16,11 @@ import os
 from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
 
+from levels import get_level
+
 load_dotenv()  # local dev: HF_TOKEN lives in .env (gitignored); Spaces use a secret
 
 JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "Qwen/Qwen3-4B-Instruct-2507")
-
-# Few-shot pairs pin the answer format to a single lowercase emotion word.
-FEW_SHOT = [
-    ("I just won the lottery!", "happy"),
-    ("My best friend moved away forever.", "sad"),
-    ("Stop touching my stuff!", "angry"),
-    ("Something is moving in the dark basement.", "scared"),
-]
 
 # Labels absent from the returned top-k get the min found logprob minus this.
 MISSING_LABEL_PENALTY = 5.0
@@ -71,16 +68,14 @@ def renormalize(label_logprobs: dict[str, float]) -> dict[str, float]:
 
 
 def score_labels(sentence: str, labels: list[str]) -> dict[str, float]:
-    """One API call -> per-label logprobs of the first answer token."""
-    messages = []
-    for example, emotion in FEW_SHOT:
-        messages.append({"role": "user", "content": f'What emotion does this sentence express, in one lowercase word: "{example}"'})
-        messages.append({"role": "assistant", "content": emotion})
-    messages.append({"role": "user", "content": f'What emotion does this sentence express, in one lowercase word: "{sentence}"'})
+    """One API call -> per-label logprobs of the first answer token.
 
+    The whole prompt is "<sentence> ="; the candidate `labels` constrain the
+    answer, so no instructions or examples are sent.
+    """
     resp = _client.chat_completion(
         model=JUDGE_MODEL,
-        messages=messages,
+        messages=[{"role": "user", "content": f"{sentence} ="}],
         max_tokens=1,
         logprobs=True,
         top_logprobs=20,
@@ -92,14 +87,17 @@ def score_labels(sentence: str, labels: list[str]) -> dict[str, float]:
 
 
 def judge(payload: dict) -> dict:
-    """Server function called from JS when the player reaches ⏎.
+    """Server function called from JS when the player reaches "=".
 
     Single-dict payload: Gradio's component server reliably passes exactly
-    one JSON argument through to server functions.
+    one JSON argument through to server functions. The board sends its
+    `level_id`; the candidate labels are resolved server-side so they never
+    round-trip through the client.
     """
     words = payload["words"]
-    targets = payload["targets"]  # still-unchecked emotions; any of them wins
-    labels = payload["labels"]
+    targets = payload["targets"]  # still-unchecked labels; any of them wins
+    level = get_level(payload["level_id"])
+    labels = level.labels
     if not words:
         return {
             "ok": True,
@@ -111,8 +109,10 @@ def judge(payload: dict) -> dict:
     sentence = assemble_sentence(words)
     try:
         if os.environ.get("JUDGE_FAKE"):  # offline dev mode: no API call
+            # Favour the first still-needed target so a collect-them-all run
+            # is playable without a token.
             fake = {label: -6.0 - i for i, label in enumerate(labels)}
-            fake["happy" if ("great" in words or "not" in words) else "sad"] = -0.3
+            fake[targets[0] if targets else labels[0]] = -0.3
             probs = renormalize(fake)
         else:
             probs = renormalize(score_labels(sentence, labels))

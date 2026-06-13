@@ -3,9 +3,17 @@ import pathlib
 import gradio as gr
 
 from judge import judge
-from level import LEVEL
+from levels import HOME_ID, LEVEL_ORDER, LEVELS
 
 STATIC = pathlib.Path(__file__).parent / "static"
+
+# Everything the board needs to render and switch levels client-side: the
+# play order, the boot board, and each level's client-facing slice.
+GAME = {
+    "levels": [LEVELS[lid].client_value() for lid in LEVEL_ORDER],
+    "order": LEVEL_ORDER,
+    "home": HOME_ID,
+}
 
 HEAD = """
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
@@ -27,7 +35,7 @@ html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 
 with gr.Blocks(css=BLOCKS_CSS, title="Semantique") as demo:
     game = gr.HTML(
-        value=LEVEL,
+        value=GAME,
         html_template=(STATIC / "game.html").read_text(),
         css_template=(STATIC / "style.css").read_text(),
         js_on_load=(STATIC / "game.js").read_text(),

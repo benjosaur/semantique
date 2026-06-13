@@ -19,16 +19,17 @@ tags:
 
 **A prompt-hopping puzzle game.** Hop your doodle across a grid of word tiles
 with the arrow keys. Every tile you land on appends its word to your sentence —
-and uses up one hop. Reach `⏎` and a small open LLM
+and uses up one hop. Reach `=` and a small open LLM
 judges what emotion your sentence expresses. Check off every target emotion
 on the list to collect them all.
 
-The judge uses **structured output via logprob filtering**: one
-chat-completion call with `max_tokens=1`, the next-token distribution is
-masked to the allowed emotion labels and softmax-renormalized — constrained
+The judge uses **structured output via logprob filtering**: the whole prompt is
+your sentence followed by `=` (mirroring the board's `=` tile), one
+chat-completion call with `max_tokens=1`, and the next-token distribution is
+masked to the board's candidate labels and softmax-renormalized — constrained
 decoding made visible as the verdict card's probability bars.
 
-> Try it: for **happy**, `start → not → sad → ⏎` works.
+> Try it: for **happy**, `start → not → sad → =` works.
 > So does `great → !`. The geometry is the puzzle — word order is path order.
 
 Built for the **Build Small Hackathon** (Thousand Token Wood track).
@@ -48,6 +49,18 @@ Built for the **Build Small Hackathon** (Thousand Token Wood track).
   renormalizes. Argmax decides the verdict; the full distribution feeds the UI.
 - **Model**: `Qwen/Qwen3-4B-Instruct-2507` (≤4B → Tiny Titan), override with
   the `JUDGE_MODEL` env var.
+
+## Levels
+
+Boards live in `levels/`, one self-contained file each. A level declares its
+grid and its candidate `labels` — and that's it; the judge prompt (`sentence =`)
+is universal, so the label set alone makes the answer an emotion on one board
+and an animal on another. To add one, drop a `levels/<name>.py` that defines
+`LEVEL = Level(...)`; it's auto-discovered and registered (`order` sets play
+order, `home` flags the boot board). In the grid, `"start"` is the home tile,
+`""` an empty walkable tile, and `"="` a submit tile (a board can have several).
+Players walk between boards with the hand-drawn arrows once they've collected a
+target.
 
 ## Run locally
 
