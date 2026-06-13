@@ -1,31 +1,54 @@
-# Targets checklist UI
+# Modular levels API + the animal board
 
-Replace the single `target: happy` with a checklist of all emotions at the top.
-Each round's win checks off the emotion the judge picked; checks persist across
-rounds ("hop again"). A round only "wins" if it lands a *new* (unchecked) emotion.
+Add a second level (animals) and make adding levels a clean, drop-in API. Each
+level carries its own grid **and** its own judge spec (category + few-shot), so
+the judge is no longer emotion-hardcoded. Two boards, switchable in-browser.
+
+## Level interpretation (from the mockup)
+
+5×5, no walls. Center = start (blank). Four corners = `⏎` submit tiles. The
+other blanks are walkable **empty** tiles that add no word (a free repositioning
+hop). Targets are the ten animals; the word tiles hint at them.
 
 ## Plan
 
-- [x] `level.py`: `"target": "happy"` → `"targets": [happy, sad, angry, scared]`
-- [x] `judge.py`: payload takes `targets` (remaining unchecked); verdict = win if winner ∈ targets
-- [x] `static/game.html`: HUD target span → targets checklist markup
-- [x] `static/style.css`: checklist item styles + checked state (green ✓, strike, faded)
+- [x] `levels/_base.py`: `Level` dataclass (grid/start/targets/labels/budget +
+      category/few_shot/question/order/home), `client_value()`, `question_for()`
+- [x] `levels/__init__.py`: registry + auto-discovery (drop a file = a level),
+      `get_level`, `LEVELS`, `LEVEL_ORDER`, `HOME_ID`
+- [x] `levels/emotion.py`: the existing board, moved verbatim + its judge spec
+- [x] `levels/animal.py`: the new board
+- [x] delete `level.py`
+- [x] `judge.py`: `score_labels(sentence, level)`, `judge` resolves level by id
+- [x] `app.py`: ship all levels + home/order to the component
 - [x] `static/game.js`:
-  - [x] build checklist items from `level.targets`, keep `checked` Set across resets
-  - [x] submit sends remaining targets; bar highlight = unchecked targets
-  - [x] on win: animate check-off after the stamp; "happy, again." stamp when winner already checked
-  - [x] all-collected hint on reset
-- [x] tests: `test_level.py` targets assertion
-- [x] `README.md`: update the two target lines
-- [x] verify: pytest + JUDGE_FAKE=1 Playwright run
+  - [x] empty `""` tiles: walkable, blank, append nothing
+  - [x] factor board build into `buildTiles()` / `buildTargets()` / `loadLevel()`
+  - [x] per-level `checkedByLevel` so progress persists across switches
+  - [x] judge payload sends `level_id` (server owns labels/few-shot)
+  - [x] hand-drawn nav arrows: next (↘, after 1 target collected) + back (↙)
+  - [x] camera reframes for the bigger 5×5 board
+- [x] `static/game.html` + `style.css`: nav button markup + ink-arrow styles
+- [x] tests: split level tests per-board; keep emotion solution paths; add
+      animal solvability; point the slow judge test at the level
+- [x] `README.md`: short "Levels" section on the drop-in API
+- [x] verify: `pytest -m "not slow"` + JUDGE_FAKE browser run of both boards
 
 ## Review
 
-- 13 fast tests pass. Played in-browser (fake judge, port 7866 — 7860-65 were
-  other worktrees' servers): win "not sad" → happy checked after the stamp;
-  "hop again" keeps the check; replaying the same sentence stamps
-  "happy, again." (no win) and the verdict bars highlight only the remaining
-  three; second win ("very fast annoy!" → sad) checks a second item.
-- Server contract change: judge payload is `targets` (list of still-unchecked
-  emotions) instead of `target`; verdict = win iff winner ∈ targets. Checked
-  state lives client-side, so a full collect-them-all run is one page session.
+- 25 fast tests pass (was 13 + judge units; now generic per-board invariants
+  over every level, emotion's documented win paths, animal solvability/empty
+  tiles, registry order/home).
+- Browser run (fake judge, port 7871, both 1516 + 1200 viewports), 0 console
+  errors: home emotion board unchanged; win "great!" → happy checked; the
+  "critters →" arrow unlocks bottom-right only after the first checkoff; click
+  switches to the 5×5 animal board (center start, four ⏎ corners, walkable ""
+  tiles, 10 targets, budget 12); "sea puppy?" judged with `level_id: animal`
+  (10-label verdict card); "← feelings" arrow returns home with checks intact.
+- Adding a board is now one file: `levels/<name>.py` with `LEVEL = Level(...)`,
+  auto-discovered. The judge is category-agnostic — each board carries its own
+  few-shot + labels, resolved server-side from the `level_id` the client sends.
+- HUD tightened: 10 target chips were wrapping/colliding with the title at
+  1200px; smaller chips + a HUD gap keep them on one line.
+- Note: the offline `JUDGE_FAKE` stub just favours the first uncollected
+  target, so every fake submit "wins" — real judging needs an HF token.
