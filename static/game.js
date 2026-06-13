@@ -44,7 +44,7 @@
     );
   }
 
-  // The context window: a plain "N/budget" counter that ticks up each hop.
+  // The hop counter: a plain "N/budget" counter that ticks up each hop.
   const countEl = element.querySelector(".sq-context-count");
   const usedEl = element.querySelector(".sq-ctx-used");
   element.querySelector(".sq-ctx-cap").textContent = level.budget;
@@ -118,7 +118,7 @@
 
   function drawTileCanvas(ctx, word) {
     ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
-    const special = word === "<bos>" || word === "<eos>";
+    const special = word === "start" || word === "⏎";
     // opaque paper base — the keycap body is the rounded outline itself now,
     // so this whole canvas IS the cap face (extruded silhouette clips it)
     ctx.fillStyle = "#faf8f2";
@@ -146,13 +146,15 @@
     ctx.lineWidth = 4;
     ctx.stroke();
 
-    // the word
-    ctx.fillStyle = special ? INK_SOFT : INK;
-    let size = word.length > 6 ? 64 : 76;
-    ctx.font = `400 ${size}px "Patrick Hand"`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(word, TILE_PX / 2 + rand(-2, 2), TILE_PX / 2 + rand(-1, 3));
+    // the word — the start tile is the blank home square, so it stays wordless
+    if (word !== "start") {
+      ctx.fillStyle = special ? INK_SOFT : INK;
+      let size = word.length > 6 ? 64 : 76;
+      ctx.font = `400 ${size}px "Patrick Hand"`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(word, TILE_PX / 2 + rand(-2, 2), TILE_PX / 2 + rand(-1, 3));
+    }
   }
 
   // Keycap sides: same paper as the cap so the button reads as ONE drawn
@@ -687,7 +689,7 @@
   let words = []; // appended (non-structural) words
   let used = 0; // hops spent
 
-  // Each prompt word is handwritten in: the ink reveals left→right, like the
+  // Each sentence word is handwritten in: the ink reveals left→right, like the
   // doodle is writing the sentence out.
   function addChip(word) {
     const chip = document.createElement("span");
@@ -741,21 +743,21 @@
     pressTile(t);
     const word = t.word;
 
-    // the hop that EXCEEDS the window kills — even onto <eos>. The fatal
-    // word never makes it into the context: no chip.
+    // the hop that EXCEEDS the budget kills — even onto ⏎. The fatal
+    // word never makes it into the sentence: no chip.
     if (used > level.budget) return die();
 
     hud.update(used);
     setPose("idle");
-    if (word !== "<bos>" && word !== "<eos>") {
+    if (word !== "start" && word !== "⏎") {
       words.push(word);
       addChip(word);
     }
 
-    if (word === "<eos>") return submit();
+    if (word === "⏎") return submit();
     if (used === level.budget) {
       hud.warnFull();
-      hintEl.textContent = "context window full! one more hop and…";
+      hintEl.textContent = "last hop! one more and you're out…";
       gsap.to(hintEl, { opacity: 1, duration: 0.3 });
     }
     state = "idle";
@@ -847,11 +849,11 @@
   }
 
   // Death card: same overlay, but there's no sentence to judge — the
-  // context window already ate the doodle.
+  // doodle ran out of hops.
   function showDeathCard() {
-    sentenceEl.textContent = "the context window overflowed…";
+    sentenceEl.textContent = "out of hops…";
     barsEl.innerHTML = "";
-    stampEl.textContent = "context exceeded!";
+    stampEl.textContent = "out of hops!";
     stampEl.classList.remove("sq-win");
     stampEl.style.opacity = 0;
     retryBtn.classList.add("sq-hidden");
@@ -949,14 +951,14 @@
     words = [];
     used = 0;
     pos = [...level.start];
-    [...chipsEl.querySelectorAll(".sq-chip:not(.sq-chip-bos)")].forEach((c) => c.remove());
+    [...chipsEl.querySelectorAll(".sq-chip")].forEach((c) => c.remove());
     hud.reset();
     hintEl.textContent = remainingTargets().length
       ? "arrow keys / WASD to hop"
       : "all targets collected! free hopping";
     gsap.to(hintEl, { opacity: 1, duration: 0.4 });
 
-    // poof back to <bos>
+    // poof back to start
     const home = charPosFor(level.start[0], level.start[1]);
     gsap.timeline({ onComplete: () => (state = "idle") })
       .to(charMesh.scale, { x: 0, y: 0, duration: 0.18, ease: "power2.in" })
