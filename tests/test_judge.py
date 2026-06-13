@@ -80,6 +80,9 @@ def test_live_judge_on_board_sentences(sentence, target, should_win):
     from judge import score_labels
     from levels import get_level
 
-    probs = renormalize(score_labels(sentence, get_level("emotion").labels))
+    # Pass every label as a target so the prompt stays unbiased and the eval
+    # measures the model's own discrimination, not a hint toward one answer.
+    labels = get_level("emotion").labels
+    probs = renormalize(score_labels(sentence, labels, targets=labels))
     winner = max(probs, key=probs.get)
     assert (winner == target) == should_win, f"{sentence!r} -> {probs}"

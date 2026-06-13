@@ -1,11 +1,13 @@
 """The judge: structured output via logprob filtering over an LLM API.
 
-The prompt is just the assembled sentence followed by " =", mirroring the
-board's "=" submit tile. One chat-completion call with max_tokens=1 and
-top_logprobs; the next-token distribution is masked to the level's candidate
-labels and renormalized with a softmax — i.e. constrained decoding, enforced
-client-side. The candidate set is what makes the answer an emotion on one board
-and an animal on another; no instructions or examples needed.
+A system message lists the level's still-needed targets, optionally followed
+by a few (sentence, label) examples as few-shot turns; the final user message
+is the assembled sentence followed by " is the same as", mirroring the board's
+"=" submit tile. One chat-completion call with max_tokens=1 and top_logprobs;
+the next-token distribution is masked to the level's candidate labels and
+renormalized with a softmax — i.e. constrained decoding, enforced client-side.
+The candidate set is what makes the answer an emotion on one board and an
+animal on another.
 
 Swapping to a local model later only requires reimplementing score_labels().
 """
@@ -67,15 +69,27 @@ def renormalize(label_logprobs: dict[str, float]) -> dict[str, float]:
     return {label: e / total for label, e in exps.items()}
 
 
-def score_labels(sentence: str, labels: list[str]) -> dict[str, float]:
+def score_labels(
+    sentence: str,
+    labels: list[str],
+    targets: list[str],
+    examples: tuple[tuple[str, str], ...] = (),
+) -> dict[str, float]:
     """One API call -> per-label logprobs of the first answer token.
 
-    The whole prompt is "<sentence> ="; the candidate `labels` constrain the
-    answer, so no instructions or examples are sent.
+    A system message lists the `targets`; each (sentence, label) in `examples`
+    becomes a few-shot user/assistant turn in the same "<sentence> is the same
+    as" -> "<label>" shape; the final user message is "<sentence> is the same
+    as". The candidate `labels` constrain the answer.
     """
+    messages = [{"role": "system", "content": f"The targets are: {', '.join(targets)}."}]
+    for ex_sentence, ex_label in examples:
+        messages.append({"role": "user", "content": f"{ex_sentence} is the same as"})
+        messages.append({"role": "assistant", "content": ex_label})
+    messages.append({"role": "user", "content": f"{sentence} is the same as"})
     resp = _client.chat_completion(
         model=JUDGE_MODEL,
-        messages=[{"role": "user", "content": f"{sentence} ="}],
+        messages=messages,
         max_tokens=1,
         logprobs=True,
         top_logprobs=20,
@@ -115,7 +129,7 @@ def judge(payload: dict) -> dict:
             fake[targets[0] if targets else labels[0]] = -0.3
             probs = renormalize(fake)
         else:
-            probs = renormalize(score_labels(sentence, labels))
+            probs = renormalize(score_labels(sentence, labels, targets, level.examples))
     except Exception as e:
         return {"ok": False, "error": str(e)}
     winner = max(probs, key=probs.get)
