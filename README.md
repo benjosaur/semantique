@@ -13,6 +13,7 @@ tags:
   - thousand-token-wood
   - off-brand
   - tiny-titan
+  - modal
 ---
 
 # Semantique 🐇
@@ -23,11 +24,12 @@ and uses up one hop. Reach `⏎` and a small open LLM
 judges what emotion your sentence expresses. Check off every target emotion
 on the list to collect them all.
 
-The judge uses **structured output via logprob filtering**: the whole prompt is
-your sentence followed by `is the same as`, one chat-completion call with
-`max_tokens=1`, and the next-token distribution is masked to the board's
-candidate labels and softmax-renormalized — constrained decoding made visible
-as the verdict card's probability bars.
+The judge uses **structured output via exact logprob filtering**: the prompt is
+your sentence followed by `is the same as`, and a single forward pass on a
+self-hosted open model scores how likely each candidate label is as the answer.
+The next-token distribution is masked to the board's labels and
+softmax-renormalized — constrained decoding made visible as the verdict card's
+probability bars.
 
 > Try it: for **happy**, `start → not → sad → ⏎` works.
 > So does `great → !`. The geometry is the puzzle — word order is path order.
@@ -43,12 +45,14 @@ Built for the **Build Small Hackathon** (Thousand Token Wood track).
   double-stroke ink, Patrick Hand lettering) used as `CanvasTexture`s, re-drawn
   ~3×/s for a living "sketch boil". The character is a billboarded doodle with
   procedural idle/hop/think frames.
-- **The AI is load-bearing**: `judge.py` calls the judge model via
-  `huggingface_hub.InferenceClient` (HF Inference Providers), reads the top-20
-  logprobs of the first answer token, masks to `happy/sad/angry/scared`, and
-  renormalizes. Argmax decides the verdict; the full distribution feeds the UI.
-- **Model**: `Qwen/Qwen3-4B-Instruct-2507` (≤4B → Tiny Titan), override with
-  the `JUDGE_MODEL` env var.
+- **The AI is load-bearing**: `judge.py` builds the prompt and POSTs it to a
+  **Modal GPU endpoint** (`modal_judge.py`) that runs one forward pass and reads
+  the *exact* probability of each candidate label — its whole token sequence scored
+  by the model, not just whatever lands in a hosted API's top-k. The label logprobs
+  are masked and renormalized; argmax decides the verdict, the full distribution
+  feeds the UI. No top-20 cap, no missing-label fudge factor.
+- **Model**: `openbmb/MiniCPM3-4B` (open weights, ≤4B → Tiny Titan), self-hosted
+  on Modal. Swap it with the `MODEL_ID` in `modal_judge.py`.
 
 ## Levels
 
@@ -66,14 +70,47 @@ target.
 
 ```bash
 uv venv && uv pip install -r requirements-dev.txt
-echo "HF_TOKEN=hf_..." > .env  # any valid HF token (or use `hf auth login`)
+cp .env.example .env           # fill in MODAL_JUDGE_URL + MODAL_KEY/MODAL_SECRET
 python app.py                  # http://127.0.0.1:7860
 ```
 
-No token handy? `JUDGE_FAKE=1 python app.py` runs an offline stub judge.
+No GPU/Modal handy? `JUDGE_FAKE=1 python app.py` runs an offline stub judge.
 
-Tests: `pytest -m "not slow"` (pure logic) · `pytest -m slow` (live API eval
-on every board-attainable sentence).
+Tests: `pytest -m "not slow"` (pure logic) · `pytest -m slow` (live eval against
+the Modal judge on every board-attainable sentence; skipped if `MODAL_JUDGE_URL`
+is unset).
+
+## Run on Modal (the GPU judge)
+
+The judge model is self-hosted on [Modal](https://modal.com) — serverless GPU,
+scale-to-zero, so it costs ~nothing while nobody's playing.
+
+```bash
+pip install modal && modal setup        # one-time auth
+modal serve modal_judge.py              # dev: hot-reload, prints a temporary URL
+modal deploy modal_judge.py             # prod: stable URL
+```
+
+`modal_judge.py` loads `openbmb/MiniCPM3-4B` on an L4, caches weights in a Modal
+Volume, and snapshots the loaded model to keep cold starts to a few seconds. The
+endpoint takes `{"messages", "labels"}` (the prompt is built in `judge.py`) and
+returns exact per-label logprobs.
+
+Protect it with a **proxy-auth token** (Modal dashboard → Settings → Proxy Auth
+Tokens) and put the URL + token in `.env` (local) or the Space secrets (deploy):
+`MODAL_JUDGE_URL`, `MODAL_KEY`, `MODAL_SECRET`.
+
+Smoke-test it: `modal run modal_judge.py --sentence "not sad"` or
+`python scripts/check_modal.py`.
+
+### Best Use of Modal
+
+Modal is the **runtime for the load-bearing AI**: every verdict is a live GPU
+forward pass on Modal, not a hosted-API call. Going self-hosted is what unlocks
+reading the *full* next-token distribution — we score each emotion word's entire
+token sequence and renormalize over exact logprobs, instead of being capped at a
+provider's top-20. Scale-to-zero + a weight-cache Volume + memory snapshots keep
+it cheap and fast.
 
 ## Deploy as a (private) HF Space
 
@@ -84,9 +121,9 @@ on every board-attainable sentence).
    hf repo create semantique --repo-type space --space-sdk gradio --private
    ```
 
-3. Add a secret so the app can call the inference API: Space → **Settings →
-   Variables and secrets** → new **secret** `HF_TOKEN` (a read token is fine).
-   Never commit tokens.
+3. Add secrets so the Space can call the Modal judge: Space → **Settings →
+   Variables and secrets** → add `MODAL_JUDGE_URL`, `MODAL_KEY`, `MODAL_SECRET`
+   (from `modal deploy` + a Modal proxy-auth token). Never commit tokens.
 4. Push the code:
 
    ```bash

@@ -1,33 +1,36 @@
-"""The judge: structured output via logprob filtering over an LLM API.
+"""The judge: structured output via exact logprob filtering over a self-hosted LLM.
 
-A system message lists the level's still-needed targets, optionally followed
-by a few (sentence, label) examples as few-shot turns; the final user message
-is the assembled sentence followed by " is the same as". One chat-completion
-call with max_tokens=1 and top_logprobs;
-the next-token distribution is masked to the level's candidate labels and
-renormalized with a softmax — i.e. constrained decoding, enforced client-side.
-The candidate set is what makes the answer an emotion on one board and an
-animal on another.
+A system message lists the level's still-needed targets, optionally followed by a
+few (sentence, label) examples as few-shot turns; the final user message is the
+assembled sentence followed by " is the same as". The model (on a Modal GPU — see
+modal_judge.py) scores each candidate label's whole token sequence in one forward
+pass; we get the *exact* probability of each label, not just whatever lands in a
+hosted API's top-k. Those per-label logprobs are masked to the level's candidate
+labels and renormalized with a softmax — constrained decoding, enforced
+client-side. The candidate set is what makes the answer an emotion on one board
+and an animal on another.
 
-Swapping to a local model later only requires reimplementing score_labels().
+`score_labels()` is the only seam to the model: it POSTs to the Modal endpoint.
+Set JUDGE_FAKE=1 for an offline stub (no GPU, no network).
 """
 
 import math
 import os
 
+import requests
 from dotenv import load_dotenv
-from huggingface_hub import InferenceClient
 
 from levels import get_level
 
-load_dotenv()  # local dev: HF_TOKEN lives in .env (gitignored); Spaces use a secret
+load_dotenv()  # local dev: MODAL_* live in .env (gitignored); the Space uses secrets
 
-JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "Qwen/Qwen3-4B-Instruct-2507")
+# Deployed Modal web endpoint + a Modal proxy-auth token. See README "Run on Modal".
+MODAL_JUDGE_URL = os.environ.get("MODAL_JUDGE_URL", "")
+MODAL_KEY = os.environ.get("MODAL_KEY", "")
+MODAL_SECRET = os.environ.get("MODAL_SECRET", "")
 
-# Labels absent from the returned top-k get the min found logprob minus this.
-MISSING_LABEL_PENALTY = 5.0
-
-_client = InferenceClient()
+# Cold start may reload (and, the very first time, download) the model, so allow slack.
+REQUEST_TIMEOUT = 120
 
 
 def assemble_sentence(words: list[str]) -> str:
@@ -41,24 +44,20 @@ def assemble_sentence(words: list[str]) -> str:
     return out
 
 
-def extract_label_logprobs(top_logprobs: list, labels: list[str]) -> dict[str, float]:
-    """Collect each label's best logprob from top-k (token, logprob) entries.
-
-    Token strings are normalized (strip + lowercase) and matched if the label
-    starts with the token or vice versa, covering tokenizations like " happy",
-    "Happy", or a "hap" prefix piece. Missing labels get a floor.
-    """
-    found: dict[str, float] = {}
-    for entry in top_logprobs:
-        token = entry.token.strip().lower()
-        if not token:
-            continue
-        for label in labels:
-            if label.startswith(token) or token.startswith(label):
-                if entry.logprob > found.get(label, -math.inf):
-                    found[label] = entry.logprob
-    floor = (min(found.values()) if found else 0.0) - MISSING_LABEL_PENALTY
-    return {label: found.get(label, floor) for label in labels}
+def build_messages(
+    sentence: str,
+    targets: list[str],
+    examples: tuple[tuple[str, str], ...] = (),
+) -> list[dict]:
+    """The judge prompt: a system message listing `targets`, then each (sentence,
+    label) in `examples` as a few-shot turn in the "<sentence> is the same as" ->
+    "<label>" shape, then the final "<sentence> is the same as"."""
+    messages = [{"role": "system", "content": f"The targets are: {', '.join(targets)}."}]
+    for ex_sentence, ex_label in examples:
+        messages.append({"role": "user", "content": f"{ex_sentence} is the same as"})
+        messages.append({"role": "assistant", "content": ex_label})
+    messages.append({"role": "user", "content": f"{sentence} is the same as"})
+    return messages
 
 
 def renormalize(label_logprobs: dict[str, float]) -> dict[str, float]:
@@ -75,29 +74,24 @@ def score_labels(
     targets: list[str],
     examples: tuple[tuple[str, str], ...] = (),
 ) -> dict[str, float]:
-    """One API call -> per-label logprobs of the first answer token.
+    """One call to the Modal GPU endpoint -> exact per-label logprobs.
 
-    A system message lists the `targets`; each (sentence, label) in `examples`
-    becomes a few-shot user/assistant turn in the same "<sentence> is the same
-    as" -> "<label>" shape; the final user message is "<sentence> is the same
-    as". The candidate `labels` constrain the answer.
+    The prompt (built from `targets`/`examples`) is sent as chat messages; the
+    candidate `labels` are what the endpoint scores and constrains the answer to.
     """
-    messages = [{"role": "system", "content": f"The targets are: {', '.join(targets)}."}]
-    for ex_sentence, ex_label in examples:
-        messages.append({"role": "user", "content": f"{ex_sentence} is the same as"})
-        messages.append({"role": "assistant", "content": ex_label})
-    messages.append({"role": "user", "content": f"{sentence} is the same as"})
-    resp = _client.chat_completion(
-        model=JUDGE_MODEL,
-        messages=messages,
-        max_tokens=1,
-        logprobs=True,
-        top_logprobs=20,
+    if not MODAL_JUDGE_URL:
+        raise RuntimeError("MODAL_JUDGE_URL is not set (deploy modal_judge.py, or use JUDGE_FAKE=1)")
+    headers = {}
+    if MODAL_KEY and MODAL_SECRET:  # Modal proxy auth
+        headers = {"Modal-Key": MODAL_KEY, "Modal-Secret": MODAL_SECRET}
+    resp = requests.post(
+        MODAL_JUDGE_URL,
+        json={"messages": build_messages(sentence, targets, examples), "labels": labels},
+        headers=headers,
+        timeout=REQUEST_TIMEOUT,
     )
-    content = resp.choices[0].logprobs.content
-    if not content:
-        raise RuntimeError(f"{JUDGE_MODEL} returned no logprobs")
-    return extract_label_logprobs(content[0].top_logprobs, labels)
+    resp.raise_for_status()
+    return resp.json()["logprobs"]
 
 
 def judge(payload: dict) -> dict:
@@ -122,7 +116,7 @@ def judge(payload: dict) -> dict:
         }
     sentence = assemble_sentence(words)
     try:
-        if os.environ.get("JUDGE_FAKE"):  # offline dev mode: no API call
+        if os.environ.get("JUDGE_FAKE"):  # offline dev mode: no GPU, no network
             # Favour the first still-needed target so a collect-them-all run
             # is playable without a token.
             fake = {label: -6.0 - i for i, label in enumerate(labels)}
