@@ -815,6 +815,7 @@
       musicGain.connect(masterGain);
     }
     if (ac.state === "suspended") ac.resume();
+    loadScratch(); // decode the pen-scratch sample on first wake-up
     return ac;
   }
   // Sounds often fire from gsap timelines (outside any user gesture), so unlock
@@ -862,6 +863,20 @@
     src.start(t0);
   }
 
+  // The pen-scratch cue is a real nib recording (trimmed to one stroke),
+  // decoded once into a buffer the first time the audio context wakes up.
+  let scratchBuf = null;
+  let scratchLoading = false;
+  function loadScratch() {
+    if (scratchBuf || scratchLoading || !ac || !props.value.scratchAudio) return;
+    scratchLoading = true;
+    fetch(props.value.scratchAudio)
+      .then((r) => r.arrayBuffer())
+      .then((b) => ac.decodeAudioData(b))
+      .then((buf) => (scratchBuf = buf))
+      .catch(() => (scratchLoading = false)); // let a later wake-up retry
+  }
+
   const sfx = {
     jump() {
       tone({ type: "triangle", from: 280, to: 640, dur: 0.14, vol: 0.3 }); // springy boing
@@ -876,6 +891,19 @@
     },
     pop() {
       tone({ type: "triangle", from: 900, to: 1400, dur: 0.07, vol: 0.14 }); // chip appears
+    },
+    scratch(dur = 0.4) {
+      if (!audio() || !scratchBuf) return; // sample still decoding → skip silently
+      const src = ac.createBufferSource();
+      src.buffer = scratchBuf;
+      // stretch the stroke toward the word's writing time (longer words →
+      // slower nib) without wild pitch shifts, plus jitter so no two are alike
+      const fit = Math.min(1.12, Math.max(0.78, scratchBuf.duration / dur));
+      src.playbackRate.value = fit * rand(0.97, 1.03);
+      const g = ac.createGain();
+      g.gain.value = 0.3; // sit under the keycap press — broadband noise reads loud
+      src.connect(g).connect(sfxGain); // ride the sfx bus so the mixer levels/mutes it
+      src.start();
     },
     click() {
       thud({ dur: 0.03, vol: 0.3, freq: 2500 }); // UI button tap
@@ -1191,8 +1219,8 @@
     text.textContent = word;
     chip.appendChild(text);
     chipsEl.appendChild(chip);
-    sfx.pop();
     const dur = 0.16 + word.length * 0.06; // writing pace scales with word length
+    sfx.scratch(dur); // pen scratches for as long as the word takes to write
     // The clip is just the left→right write-on; clear it once written so no
     // residual inset lingers. A leftover right inset is a % of the chip's box,
     // which for a 1-char tile (! ?) is too small to clear Caveat's forward
