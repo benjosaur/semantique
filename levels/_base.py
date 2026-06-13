@@ -24,6 +24,9 @@ class Level:
     targets: list[str]  # labels to collect (a win checks one off)
     labels: list[str]  # full candidate set the judge scores among
     budget: int  # hops before the doodle falls off the board
+    # Few-shot (sentence, label) pairs prepended to the judge prompt to calibrate
+    # its read of this board. Judge-only — never shipped to the client (no spoilers).
+    examples: tuple[tuple[str, str], ...] = ()
     order: int = 100  # play order across boards (lower comes first)
     home: bool = False  # the board the app boots into
 

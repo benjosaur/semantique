@@ -16,8 +16,11 @@ client = InferenceClient()
 
 resp = client.chat_completion(
     model=model,
-    messages=[
-        {"role": "user", "content": "not sad ="},  # the judge's "<sentence> =" prompt
+    messages=[  # the judge's prompt: targets + few-shot turns, then "<sentence> is the same as"
+        {"role": "system", "content": "The targets are: happy, sad, angry, scared."},
+        {"role": "user", "content": "great! is the same as"},
+        {"role": "assistant", "content": "happy"},
+        {"role": "user", "content": "not sad is the same as"},
     ],
     max_tokens=1,
     logprobs=True,

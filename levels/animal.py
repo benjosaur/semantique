@@ -21,6 +21,12 @@ LEVEL = Level(
     start=(2, 2),  # the centre tile
     targets=["whale", "dolphin", "otter", "cat", "dog", "bear", "owl", "mouse", "lion", "cow"],
     labels=["whale", "dolphin", "otter", "cat", "dog", "bear", "owl", "mouse", "lion", "cow"],
+    examples=(  # few-shot calibration for the judge (board words hinting animals)
+        ("sea big", "whale"),
+        ("puppy", "dog"),
+        ("flying quiet", "owl"),
+        ("grass big", "cow"),
+    ),
     budget=12,
     order=1,
 )
