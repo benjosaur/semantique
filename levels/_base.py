@@ -8,8 +8,8 @@ auto-discovery.
 Grid words are plain strings, with three reserved values:
   "start"  the home tile (rendered blank, appends no word)
   ""       a walkable empty tile (rendered blank, appends no word)
-  "="      a submit tile — hopping onto one sends the sentence to the judge
-A board may have several "=" tiles; every other cell appends its word.
+  "⏎"      a submit tile — hopping onto one sends the sentence to the judge
+A board may have several "⏎" tiles; every other cell appends its word.
 """
 
 from dataclasses import dataclass
