@@ -32,8 +32,8 @@
   const INK = "#1c1b18";
   const INK_SOFT = "#5a564c";
 
-  // A grid cell appends its word unless it's structural (start / blank / ⏎).
-  const appendsWord = (w) => w && w !== "start" && w !== "⏎";
+  // A grid cell appends its word unless it's structural (start / blank / =).
+  const appendsWord = (w) => w && w !== "start" && w !== "=";
 
   // ---- HUD ----
   // The targets checklist: every label to collect. Checks persist per board
@@ -153,7 +153,7 @@
 
   function drawTileCanvas(ctx, word) {
     ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
-    const special = word === "start" || word === "⏎";
+    const special = word === "start" || word === "=";
     // opaque paper base — the keycap body is the rounded outline itself now,
     // so this whole canvas IS the cap face (extruded silhouette clips it)
     ctx.fillStyle = "#faf8f2";
@@ -799,7 +799,7 @@
     pressTile(t);
     const word = t.word;
 
-    // the hop that EXCEEDS the budget kills — even onto ⏎. The fatal
+    // the hop that EXCEEDS the budget kills — even onto "=". The fatal
     // word never makes it into the sentence: no chip.
     if (used > level.budget) return die();
 
@@ -810,7 +810,7 @@
       addChip(word);
     }
 
-    if (word === "⏎") return submit();
+    if (word === "=") return submit();
     if (used === level.budget) {
       hud.warnFull();
       hintEl.textContent = "last hop! one more and you're out…";
