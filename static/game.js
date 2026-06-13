@@ -53,14 +53,7 @@
       item.className = "sq-target-item";
       item.style.setProperty("--tilt", `${(Math.random() * 4 - 2.5).toFixed(1)}deg`);
       item.appendChild(document.createTextNode(label));
-      const check = document.createElement("span");
-      check.className = "sq-target-check";
-      check.textContent = "✓";
-      item.appendChild(check);
-      if (checked.has(label)) {
-        item.classList.add("sq-checked");
-        check.style.opacity = 1;
-      }
+      if (checked.has(label)) item.classList.add("sq-checked");
       targetListEl.appendChild(item);
       targetItems[label] = item;
     }
@@ -70,12 +63,8 @@
   function checkOff(label) {
     checkedOnThisLevel().add(label);
     const item = targetItems[label];
-    item.classList.add("sq-checked");
-    gsap.fromTo(
-      item.querySelector(".sq-target-check"),
-      { opacity: 0, scale: 2.6, rotation: -24 },
-      { opacity: 1, scale: 1, rotation: -8, duration: 0.3, ease: "power3.in" }
-    );
+    item.classList.add("sq-checked"); // fades + strikes the word through
+    gsap.fromTo(item, { scale: 1.3 }, { scale: 1, duration: 0.3, ease: "back.out(2)" });
     updateNav(); // first check on the home board reveals the "next" arrow
   }
 
