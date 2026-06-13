@@ -14,12 +14,12 @@ ALL_LEVELS = list(LEVELS.values())
 # ---- tile-kind helpers (mirror game.js) -----------------------------------
 
 def is_submit(word: str) -> bool:
-    return word == "⏎"
+    return word == "="
 
 
 def appends(word: str) -> bool:
     """A real word tile — not start, blank, or submit."""
-    return bool(word) and word not in ("start", "⏎")
+    return bool(word) and word not in ("start", "=")
 
 
 def neighbors(level, r, c):
@@ -31,10 +31,10 @@ def neighbors(level, r, c):
 
 
 def min_hops_to_real_submit(level):
-    """Shortest hop count from start to a ⏎ with a non-empty sentence.
+    """Shortest hop count from start to a "=" with a non-empty sentence.
 
     BFS over (row, col, collected_a_word) — every cell is walkable (no walls),
-    ⏎ tiles are terminal. None if no winnable path exists.
+    "=" tiles are terminal. None if no winnable path exists.
     """
     sr, sc = level.start
     seen = {(sr, sc, False)}
@@ -84,15 +84,9 @@ def test_has_a_submit_tile(level):
 @pytest.mark.parametrize("level", ALL_LEVELS, ids=[lvl.id for lvl in ALL_LEVELS])
 def test_solvable_within_budget_and_no_instant_submit(level):
     hops = min_hops_to_real_submit(level)
-    assert hops is not None, f"{level.id}: no winnable path to ⏎"
-    assert hops >= 2, f"{level.id}: ⏎ reachable with an empty sentence"
+    assert hops is not None, f"{level.id}: no winnable path to ="
+    assert hops >= 2, f"{level.id}: = reachable with an empty sentence"
     assert hops <= level.budget, f"{level.id}: shortest win {hops} > budget {level.budget}"
-
-
-@pytest.mark.parametrize("level", ALL_LEVELS, ids=[lvl.id for lvl in ALL_LEVELS])
-def test_few_shot_answers_are_labels(level):
-    # Every few-shot answer must be a candidate label so the format is consistent.
-    assert all(answer in level.labels for _, answer in level.few_shot)
 
 
 # ---- registry --------------------------------------------------------------
@@ -129,15 +123,15 @@ def emotion_walk(path):
 
 
 def test_emotion_quick_win_path():
-    assert assemble_sentence(emotion_walk(["great", "!", "⏎"])) == "great!"
+    assert assemble_sentence(emotion_walk(["great", "!", "="])) == "great!"
 
 
 def test_emotion_clever_win_path():
-    assert assemble_sentence(emotion_walk(["not", "sad", "⏎"])) == "not sad"
+    assert assemble_sentence(emotion_walk(["not", "sad", "="])) == "not sad"
 
 
 def test_emotion_start_revisit_win_path():
-    assert assemble_sentence(emotion_walk(["very", "start", "great", "!", "⏎"])) == "very great!"
+    assert assemble_sentence(emotion_walk(["very", "start", "great", "!", "="])) == "very great!"
 
 
 # ---- animal board: empty tiles are walkable but wordless -------------------
@@ -147,7 +141,7 @@ ANIMAL = get_level("animal")
 
 def test_animal_empty_tiles_add_no_word():
     # A centre-out route that crosses an empty "" tile: it costs a hop but
-    # contributes no word. (2,2)->(2,1)fur->(1,1)!->(0,1)""->(0,0)⏎
+    # contributes no word. (2,2)->(2,1)fur->(1,1)!->(0,1)""->(0,0)=
     pos = tuple(ANIMAL.start)
     coords = [(2, 1), (1, 1), (0, 1), (0, 0)]
     words = []

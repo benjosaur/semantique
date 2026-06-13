@@ -1,10 +1,11 @@
 """The judge: structured output via logprob filtering over an LLM API.
 
-One chat-completion call with max_tokens=1 and top_logprobs; the next-token
-distribution is masked to the level's candidate labels and renormalized with a
-softmax — i.e. constrained decoding, enforced client-side. Each level supplies
-its own category + few-shot pairs (see levels/), so the same judge scores
-emotions, animals, or anything a board declares.
+The prompt is just the assembled sentence followed by " =", mirroring the
+board's "=" submit tile. One chat-completion call with max_tokens=1 and
+top_logprobs; the next-token distribution is masked to the level's candidate
+labels and renormalized with a softmax — i.e. constrained decoding, enforced
+client-side. The candidate set is what makes the answer an emotion on one board
+and an animal on another; no instructions or examples needed.
 
 Swapping to a local model later only requires reimplementing score_labels().
 """
@@ -15,7 +16,7 @@ import os
 from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
 
-from levels import Level, get_level
+from levels import get_level
 
 load_dotenv()  # local dev: HF_TOKEN lives in .env (gitignored); Spaces use a secret
 
@@ -66,21 +67,15 @@ def renormalize(label_logprobs: dict[str, float]) -> dict[str, float]:
     return {label: e / total for label, e in exps.items()}
 
 
-def score_labels(sentence: str, level: Level) -> dict[str, float]:
+def score_labels(sentence: str, labels: list[str]) -> dict[str, float]:
     """One API call -> per-label logprobs of the first answer token.
 
-    The level supplies the few-shot pairs, the question template, and the
-    candidate labels — so this function is category-agnostic.
+    The whole prompt is "<sentence> ="; the candidate `labels` constrain the
+    answer, so no instructions or examples are sent.
     """
-    messages = []
-    for example, answer in level.few_shot:
-        messages.append({"role": "user", "content": level.question_for(example)})
-        messages.append({"role": "assistant", "content": answer})
-    messages.append({"role": "user", "content": level.question_for(sentence)})
-
     resp = _client.chat_completion(
         model=JUDGE_MODEL,
-        messages=messages,
+        messages=[{"role": "user", "content": f"{sentence} ="}],
         max_tokens=1,
         logprobs=True,
         top_logprobs=20,
@@ -88,16 +83,16 @@ def score_labels(sentence: str, level: Level) -> dict[str, float]:
     content = resp.choices[0].logprobs.content
     if not content:
         raise RuntimeError(f"{JUDGE_MODEL} returned no logprobs")
-    return extract_label_logprobs(content[0].top_logprobs, level.labels)
+    return extract_label_logprobs(content[0].top_logprobs, labels)
 
 
 def judge(payload: dict) -> dict:
-    """Server function called from JS when the player reaches ⏎.
+    """Server function called from JS when the player reaches "=".
 
     Single-dict payload: Gradio's component server reliably passes exactly
     one JSON argument through to server functions. The board sends its
-    `level_id`; the judge spec (labels, few-shot, category) is resolved
-    server-side so it never round-trips through the client.
+    `level_id`; the candidate labels are resolved server-side so they never
+    round-trip through the client.
     """
     words = payload["words"]
     targets = payload["targets"]  # still-unchecked labels; any of them wins
@@ -120,7 +115,7 @@ def judge(payload: dict) -> dict:
             fake[targets[0] if targets else labels[0]] = -0.3
             probs = renormalize(fake)
         else:
-            probs = renormalize(score_labels(sentence, level))
+            probs = renormalize(score_labels(sentence, labels))
     except Exception as e:
         return {"ok": False, "error": str(e)}
     winner = max(probs, key=probs.get)
