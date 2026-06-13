@@ -1088,10 +1088,19 @@
     chipsEl.appendChild(chip);
     sfx.pop();
     const dur = 0.16 + word.length * 0.06; // writing pace scales with word length
+    // The clip is just the left→right write-on; clear it once written so no
+    // residual inset lingers. A leftover right inset is a % of the chip's box,
+    // which for a 1-char tile (! ?) is too small to clear Caveat's forward
+    // slant — the lean would stay clipped forever.
     gsap.fromTo(
       text,
       { clipPath: "inset(-20% 100% -20% -10%)" },
-      { clipPath: "inset(-20% -10% -20% -10%)", duration: dur, ease: "none" }
+      {
+        clipPath: "inset(-20% -10% -20% -10%)",
+        duration: dur,
+        ease: "none",
+        clearProps: "clipPath",
+      }
     );
   }
 
