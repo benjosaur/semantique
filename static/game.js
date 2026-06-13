@@ -32,12 +32,27 @@
     // Instant pin, before the resizer API is ready; cap by the screen so any
     // runaway that already started can't lock in a giant value.
     fit(Math.min(window.innerHeight, window.screen.height || Infinity));
-    // Once iframe-resizer's content-window API is up, fill the parent's real
-    // viewport — getPageInfo re-fires on parent scroll/resize, so it stays right.
+    // Gradio's shell (.main.fillable / .wrap / .contain) sits a few constant px
+    // taller than our component, so the iframe-resizer measures `root + chrome`.
+    // Size root so the WHOLE document equals the slot: subtract that measured
+    // excess. Cached so repeat getPageInfo events don't oscillate.
+    let chrome = 0;
+    const apply = (info) => {
+      // Available slot = parent viewport minus how far the iframe sits below the
+      // top (HF's header); clamped so it never exceeds one screen (no scroll).
+      const avail = Math.min(info.clientHeight, info.clientHeight - info.offsetTop + info.scrollTop);
+      fit(avail - chrome);
+      requestAnimationFrame(() => {
+        const excess = document.body.offsetHeight - rootEl.offsetHeight;
+        if (excess >= 0 && excess !== chrome) { chrome = excess; fit(avail - chrome); }
+      });
+    };
+    // getPageInfo re-fires on parent scroll/resize, so a rotating phone or a
+    // collapsing mobile URL bar stays fitted.
     const poll = setInterval(() => {
       if (!window.parentIFrame) return;
       clearInterval(poll);
-      window.parentIFrame.getPageInfo((info) => fit(info.clientHeight));
+      window.parentIFrame.getPageInfo(apply);
     }, 50);
     setTimeout(() => clearInterval(poll), 5000); // give up waiting for the API
   }
