@@ -13,11 +13,15 @@
   position: relative;
   width: 100%;
   height: 100vh;
+  height: 100dvh; /* dynamic vh: don't get clipped by mobile browser chrome */
   overflow: hidden;
   background: var(--paper);
   color: var(--ink);
   font-family: "Patrick Hand", cursive;
   user-select: none;
+  /* swipes drive the game — stop the browser from scrolling/zooming on them */
+  touch-action: none;
+  overscroll-behavior: none;
 }
 
 /* faint ruled-notebook lines, like the sketch */
@@ -51,7 +55,7 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding: 18px 28px 0;
+  padding: max(18px, env(safe-area-inset-top)) 28px 0;
   pointer-events: none;
   z-index: 2;
 }
@@ -179,7 +183,7 @@
 
 .sq-hint {
   position: absolute;
-  bottom: 18px;
+  bottom: max(18px, env(safe-area-inset-bottom));
   left: 0;
   right: 0;
   text-align: center;
@@ -295,3 +299,41 @@
 }
 
 .sq-hidden { display: none !important; }
+
+/* ---- phones ---- */
+/* Compact the top chrome on phones — narrow (portrait) OR short (landscape, where
+   the board is wide but only ~400px tall and the desktop HUD would overlap it).
+   Keep the HUD on a single line (no wrap → no collision with the absolutely
+   positioned prompt strip) by shrinking it and dropping the decorative title.
+   The board reframes itself via the JS resize(), so only the overlay text needs
+   to scale down here. */
+@media (max-width: 560px), (max-height: 540px) {
+  .sq-hud { padding-left: 10px; padding-right: 10px; }
+  .sq-title { display: none; }
+  .sq-targets { font-size: 14px; flex-shrink: 0; white-space: nowrap; }
+  .sq-target-list { gap: 4px; margin-left: 3px; flex-wrap: nowrap; }
+  .sq-target-item { padding: 0 5px 1px; }
+  .sq-target-check { font-size: 17px; top: -9px; right: -5px; }
+  .sq-context { gap: 4px; flex-shrink: 0; }
+  .sq-context-label { font-size: 14px; }
+  .sq-context-count { font-size: 17px; min-width: 30px; }
+
+  .sq-prompt { top: 52px; padding-left: 10px; padding-right: 10px; gap: 6px; }
+  .sq-prompt-label { font-size: 20px; }
+  .sq-chips { gap: 9px; }
+  .sq-chip { font-size: 26px; }
+
+  .sq-hint { font-size: 16px; }
+
+  .sq-card { padding: 24px 22px 22px; }
+  .sq-card-sentence { font-size: 27px; }
+  .sq-bar-row { grid-template-columns: 60px 1fr 44px; font-size: 17px; }
+  .sq-stamp { font-size: 32px; top: -16px; right: -4px; } /* keep the sticker on-screen */
+}
+
+/* Tiny phones (~320px): the pills + both labels + hops can't share one line.
+   Drop the "targets:" word — the checklist pills speak for themselves — so the
+   hop counter stays on-screen. */
+@media (max-width: 340px) {
+  .sq-targets-label { display: none; }
+}
