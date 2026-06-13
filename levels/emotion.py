@@ -13,18 +13,17 @@ LEVEL = Level(
     title="feelings",
     grid=[
         ["slowly", "very", "fast", "annoy"],
-        ["apple", "start", "great", "!"],
+        ["yikes", "start", "great", "!"],
         ["hurt", "not", "sad", "⏎"],
         ["again", "?", "angry", "disturb"],
     ],
     start=(1, 1),  # row, col of the start tile
-    targets=["happy", "sad", "angry", "scared"],  # collect them all
-    labels=["happy", "sad", "angry", "scared"],
-    examples=(  # few-shot calibration for the judge (board words, all four labels)
+    targets=["happy", "betrayed", "surprised"],  # collect them all
+    labels=["happy", "betrayed", "surprised"],
+    examples=(  # few-shot calibration for the judge (board words, all three labels)
         ("great!", "happy"),
-        ("not great", "sad"),
-        ("annoy", "angry"),
-        ("disturb", "scared"),
+        ("hurt", "betrayed"),
+        ("yikes", "surprised"),
     ),
     budget=10,
     order=0,
