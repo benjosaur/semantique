@@ -17,37 +17,58 @@
 
   const THREE = await import("https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js");
 
-  const level = props.value; // { grid, start, targets, budget, labels }
-  const ROWS = level.grid.length;
-  const COLS = level.grid[0].length;
+  // props.value: { levels: [clientValue...], order: [id...], home: id }
+  const data = props.value;
+  const LEVELS = Object.fromEntries(data.levels.map((l) => [l.id, l]));
+  const ORDER = data.order;
+  let level = LEVELS[data.home]; // the active board; swapped by loadLevel()
+  let ROWS = level.grid.length;
+  let COLS = level.grid[0].length;
+  // Checked-off targets persist per board across switches and rounds.
+  const checkedByLevel = Object.fromEntries(data.levels.map((l) => [l.id, new Set()]));
   const root = element.querySelector(".sq-root");
   const stage = element.querySelector(".sq-stage");
 
   const INK = "#1c1b18";
   const INK_SOFT = "#5a564c";
 
+  // A grid cell appends its word unless it's structural (start / blank / ⏎).
+  const appendsWord = (w) => w && w !== "start" && w !== "⏎";
+
   // ---- HUD ----
-  // The targets checklist: every emotion to collect. Checks persist across
-  // rounds ("hop again" keeps them), so the meta-game is collecting all four.
+  // The targets checklist: every label to collect. Checks persist per board
+  // across rounds ("hop again" keeps them), so the meta-game is collecting all.
   const targetListEl = element.querySelector(".sq-target-list");
-  const checked = new Set();
-  const targetItems = {};
-  for (const label of level.targets) {
-    const item = document.createElement("span");
-    item.className = "sq-target-item";
-    item.style.setProperty("--tilt", `${(Math.random() * 4 - 2.5).toFixed(1)}deg`);
-    item.appendChild(document.createTextNode(label));
-    const check = document.createElement("span");
-    check.className = "sq-target-check";
-    check.textContent = "✓";
-    item.appendChild(check);
-    targetListEl.appendChild(item);
-    targetItems[label] = item;
+  let targetItems = {}; // label -> chip element, rebuilt per board
+  const checkedOnThisLevel = () => checkedByLevel[level.id];
+  const remainingTargets = () => level.targets.filter((t) => !checkedOnThisLevel().has(t));
+
+  // (Re)build the checklist for the active board, restoring any persisted checks.
+  function buildTargets() {
+    targetListEl.innerHTML = "";
+    targetItems = {};
+    const checked = checkedOnThisLevel();
+    for (const label of level.targets) {
+      const item = document.createElement("span");
+      item.className = "sq-target-item";
+      item.style.setProperty("--tilt", `${(Math.random() * 4 - 2.5).toFixed(1)}deg`);
+      item.appendChild(document.createTextNode(label));
+      const check = document.createElement("span");
+      check.className = "sq-target-check";
+      check.textContent = "✓";
+      item.appendChild(check);
+      if (checked.has(label)) {
+        item.classList.add("sq-checked");
+        check.style.opacity = 1;
+      }
+      targetListEl.appendChild(item);
+      targetItems[label] = item;
+    }
+    element.querySelector(".sq-ctx-cap").textContent = level.budget;
   }
-  const remainingTargets = () => level.targets.filter((t) => !checked.has(t));
 
   function checkOff(label) {
-    checked.add(label);
+    checkedOnThisLevel().add(label);
     const item = targetItems[label];
     item.classList.add("sq-checked");
     gsap.fromTo(
@@ -55,12 +76,13 @@
       { opacity: 0, scale: 2.6, rotation: -24 },
       { opacity: 1, scale: 1, rotation: -8, duration: 0.3, ease: "power3.in" }
     );
+    updateNav(); // first check on the home board reveals the "next" arrow
   }
 
   // The hop counter: a plain "N/budget" counter that ticks up each hop.
+  // (The cap text is set per board in buildTargets.)
   const countEl = element.querySelector(".sq-context-count");
   const usedEl = element.querySelector(".sq-ctx-used");
-  element.querySelector(".sq-ctx-cap").textContent = level.budget;
   const hud = {
     update(used) {
       usedEl.textContent = used;
@@ -159,8 +181,9 @@
     ctx.lineWidth = 4;
     ctx.stroke();
 
-    // the word — the start tile is the blank home square, so it stays wordless
-    if (word !== "start") {
+    // the word — start and empty tiles are blank squares, so they stay wordless
+    const blank = !word || word === "start";
+    if (!blank) {
       ctx.fillStyle = special ? INK_SOFT : INK;
       let size = word.length > 6 ? 64 : 76;
       ctx.font = `400 ${size}px "Patrick Hand"`;
@@ -280,28 +303,41 @@
   sideTexture.colorSpace = THREE.SRGBColorSpace;
   const sideMaterial = new THREE.MeshBasicMaterial({ map: sideTexture });
 
-  const tiles = []; // { mesh, ctx, texture, word, row, col }
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
-      const word = level.grid[r][c];
-      const canvas = document.createElement("canvas");
-      canvas.width = canvas.height = TILE_PX * TEX_SCALE;
-      const ctx = canvas.getContext("2d");
-      drawTileCanvas(ctx, word);
+  let tiles = []; // { mesh, ctx, texture, word, row, col }
+  const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-      texture.colorSpace = THREE.SRGBColorSpace;
+  // (Re)build the keycaps for the active board, disposing the previous set.
+  function buildTiles() {
+    for (const t of tiles) {
+      board.remove(t.mesh);
+      t.texture.dispose();
+      t.mesh.material[0].dispose(); // per-tile cap material (side is shared)
+    }
+    tiles = [];
+    ROWS = level.grid.length;
+    COLS = level.grid[0].length;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const word = level.grid[r][c];
+        const canvas = document.createElement("canvas");
+        canvas.width = canvas.height = TILE_PX * TEX_SCALE;
+        const ctx = canvas.getContext("2d");
+        drawTileCanvas(ctx, word);
 
-      // ExtrudeGeometry groups: [0] = caps (top + hidden bottom), [1] = side wall
-      const mesh = new THREE.Mesh(tileGeometry, [
-        new THREE.MeshBasicMaterial({ map: texture, transparent: false }),
-        sideMaterial,
-      ]);
-      const { x, z } = tileAt(r, c);
-      mesh.position.set(x, -TILE_DEPTH / 2, z); // top face flush with y=0
-      board.add(mesh);
-      tiles.push({ mesh, ctx, texture, word, row: r, col: c });
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.anisotropy = maxAniso;
+        texture.colorSpace = THREE.SRGBColorSpace;
+
+        // ExtrudeGeometry groups: [0] = caps (top + hidden bottom), [1] = side wall
+        const mesh = new THREE.Mesh(tileGeometry, [
+          new THREE.MeshBasicMaterial({ map: texture, transparent: false }),
+          sideMaterial,
+        ]);
+        const { x, z } = tileAt(r, c);
+        mesh.position.set(x, -TILE_DEPTH / 2, z); // top face flush with y=0
+        board.add(mesh);
+        tiles.push({ mesh, ctx, texture, word, row: r, col: c });
+      }
     }
   }
   const tile = (r, c) => tiles[r * COLS + c];
@@ -585,6 +621,7 @@
     sideTexture.needsUpdate = true;
     drawCharCanvas(charCtx, charPose);
     charTexture.needsUpdate = true;
+    drawNavArrows();
   }, 340);
 
   // ---- sounds: a tiny Web Audio sketch-synth ----
@@ -768,7 +805,7 @@
 
     hud.update(used);
     setPose("idle");
-    if (word !== "start" && word !== "⏎") {
+    if (appendsWord(word)) {
       words.push(word);
       addChip(word);
     }
@@ -831,7 +868,7 @@
 
     let res;
     try {
-      res = await server.judge({ words, targets: remainingTargets(), labels: level.labels });
+      res = await server.judge({ words, targets: remainingTargets(), level_id: level.id });
     } catch (err) {
       res = { ok: false, error: String(err) };
     }
@@ -904,7 +941,7 @@
     const fills = [];
     for (const [label, p] of entries) {
       const row = document.createElement("div");
-      row.className = "sq-bar-row" + (checked.has(label) ? "" : " sq-bar-target");
+      row.className = "sq-bar-row" + (checkedOnThisLevel().has(label) ? "" : " sq-bar-target");
       const name = document.createElement("span");
       name.className = "sq-bar-label";
       name.textContent = label;
@@ -926,7 +963,7 @@
     // a repeat of an already-checked emotion isn't a win — say so on the stamp
     stampEl.textContent =
       res.verdict === "win" ? `${res.winner}!`
-      : checked.has(res.winner) ? `${res.winner}, again.`
+      : checkedOnThisLevel().has(res.winner) ? `${res.winner}, again.`
       : `${res.winner}.`;
     stampEl.classList.toggle("sq-win", res.verdict === "win");
     stampEl.style.opacity = 0;
@@ -958,26 +995,22 @@
 
   // ---- reset ----
 
-  function reset() {
-    gsap.to(overlayEl, {
-      autoAlpha: 0, duration: 0.25,
-      onComplete: () => {
-        overlayEl.classList.add("sq-hidden");
-        overlayEl.style.opacity = "";
-      },
-    });
-
+  // Clear the sentence/hops/HUD back to a fresh attempt on the current board.
+  function resetGameState() {
     words = [];
     used = 0;
     pos = [...level.start];
+    buffered = null;
     [...chipsEl.querySelectorAll(".sq-chip")].forEach((c) => c.remove());
     hud.reset();
     hintEl.textContent = remainingTargets().length
       ? HOP_HINT
       : "all targets collected! free hopping";
     gsap.to(hintEl, { opacity: 1, duration: 0.4 });
+  }
 
-    // poof back to start
+  // Poof the doodle back onto its start tile (used by "hop again" and switches).
+  function poofToStart() {
     const home = charPosFor(level.start[0], level.start[1]);
     gsap.timeline({ onComplete: () => (state = "idle") })
       .to(charMesh.scale, { x: 0, y: 0, duration: 0.18, ease: "power2.in" })
@@ -990,6 +1023,18 @@
       })
       .add(() => sfx.pop()) // poof back in
       .to(charMesh.scale, { x: 1, y: 1, duration: 0.28, ease: "back.out(2.5)" });
+  }
+
+  function reset() {
+    gsap.to(overlayEl, {
+      autoAlpha: 0, duration: 0.25,
+      onComplete: () => {
+        overlayEl.classList.add("sq-hidden");
+        overlayEl.style.opacity = "";
+      },
+    });
+    resetGameState();
+    poofToStart();
   }
 
   againBtn.addEventListener("click", reset);
@@ -1055,7 +1100,12 @@
   stage.addEventListener("pointercancel", () => (swStart = null));
 
   // ---- camera framing ----
-  const VIEW = 7.0; // world units visible vertically
+  let viewUnits = 7.0; // world units visible vertically; sized to the board by reframe()
+  function reframe() {
+    const span = (Math.max(ROWS, COLS) - 1) * SPACING + TILE_SIZE;
+    viewUnits = span + 1.2; // a little margin around the board
+    resize();
+  }
   function resize() {
     const w = stage.clientWidth || 1;
     const h = stage.clientHeight || 1;
@@ -1065,7 +1115,8 @@
     // a touch more and aim higher, dropping the board into the clear middle band.
     const short = h <= 540;
     // fov stays 32°; dolly the camera so the board fits either way
-    const need = Math.max(VIEW, 6.8 / aspect, short ? 9.4 : 0);
+    // board-sized base, narrow-window fit, plus the landscape-phone zoom-out floor
+    const need = Math.max(viewUnits, (viewUnits - 0.2) / aspect, short ? 9.4 : 0);
     camera.position.z = need / 2 / Math.tan(THREE.MathUtils.degToRad(32 / 2));
     camera.aspect = aspect;
     camera.lookAt(0, short ? 0.55 : 0.25, 0);
@@ -1073,7 +1124,6 @@
     renderer.setSize(w, h);
   }
   new ResizeObserver(resize).observe(stage);
-  resize();
 
   // The board never moves, so the billboard's parent correction is constant.
   const _bbParentInv = new THREE.Quaternion();
@@ -1090,5 +1140,85 @@
     renderer.render(scene, camera);
   });
 
+  // ---- level nav: hand-drawn arrows that walk between boards ----
+  const backBtn = element.querySelector(".sq-nav-back");
+  const nextBtn = element.querySelector(".sq-nav-next");
+  const backLabelEl = backBtn.querySelector(".sq-nav-label");
+  const nextLabelEl = nextBtn.querySelector(".sq-nav-label");
+
+  // Each arrow is an ink doodle baked to a small canvas, re-jittered by the boil.
+  function makeArrowCanvas(host) {
+    const cv = document.createElement("canvas");
+    cv.width = 58 * TEX_SCALE;
+    cv.height = 30 * TEX_SCALE;
+    host.appendChild(cv);
+    return cv;
+  }
+  function drawArrow(cv, dir) {
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
+    ctx.clearRect(0, 0, 58, 30);
+    ctx.lineJoin = ctx.lineCap = "round";
+    ctx.strokeStyle = INK_SOFT;
+    ctx.lineWidth = 3.5;
+    const y = 15;
+    const tail = dir > 0 ? 6 : 52;
+    const tip = dir > 0 ? 50 : 8;
+    wobblyLine(ctx, tail, y, tip, y, 1.6); ctx.stroke(); // shaft
+    wobblyLine(ctx, tip, y, tip - dir * 12, y - 8, 1.2); ctx.stroke(); // head, upper barb
+    wobblyLine(ctx, tip, y, tip - dir * 12, y + 8, 1.2); ctx.stroke(); // head, lower barb
+  }
+  const backArrow = makeArrowCanvas(backBtn.querySelector(".sq-nav-arrow"));
+  const nextArrow = makeArrowCanvas(nextBtn.querySelector(".sq-nav-arrow"));
+  function drawNavArrows() {
+    if (!backArrow) return;
+    drawArrow(backArrow, -1);
+    drawArrow(nextArrow, 1);
+  }
+  drawNavArrows();
+
+  function revealNav(btn, show) {
+    const wasHidden = btn.classList.contains("sq-hidden");
+    if (!show) return btn.classList.add("sq-hidden");
+    btn.classList.remove("sq-hidden");
+    if (wasHidden) {
+      gsap.fromTo(btn, { autoAlpha: 0, y: 10 }, { autoAlpha: 1, y: 0, duration: 0.4, ease: "back.out(1.8)" });
+    }
+  }
+  function updateNav() {
+    const i = ORDER.indexOf(level.id);
+    const hasBack = i > 0;
+    // The forward arrow stays hidden until a target is collected on this board.
+    const hasNext = i < ORDER.length - 1 && checkedOnThisLevel().size > 0;
+    if (hasBack) backLabelEl.textContent = LEVELS[ORDER[i - 1]].title;
+    if (hasNext) nextLabelEl.textContent = LEVELS[ORDER[i + 1]].title;
+    revealNav(backBtn, hasBack);
+    revealNav(nextBtn, hasNext);
+  }
+  backBtn.addEventListener("click", () => {
+    const i = ORDER.indexOf(level.id);
+    if (i > 0) { sfx.click(); loadLevel(ORDER[i - 1]); }
+  });
+  nextBtn.addEventListener("click", () => {
+    const i = ORDER.indexOf(level.id);
+    if (i < ORDER.length - 1) { sfx.click(); loadLevel(ORDER[i + 1]); }
+  });
+
+  // Swap the active board: rebuild tiles + checklist, reframe, poof in.
+  function loadLevel(id) {
+    gsap.killTweensOf([charMesh.scale, charMesh.position, charGroup.position, charTilt, charMesh.material]);
+    overlayEl.classList.add("sq-hidden");
+    overlayEl.style.opacity = "";
+    level = LEVELS[id];
+    state = "hopping"; // block input until the poof lands (then -> idle)
+    buildTiles();
+    buildTargets();
+    resetGameState();
+    reframe();
+    updateNav();
+    poofToStart();
+  }
+
+  loadLevel(data.home);
   root.dataset.state = "ready";
 })();

@@ -49,6 +49,18 @@ Built for the **Build Small Hackathon** (Thousand Token Wood track).
 - **Model**: `Qwen/Qwen3-4B-Instruct-2507` (≤4B → Tiny Titan), override with
   the `JUDGE_MODEL` env var.
 
+## Levels
+
+Boards live in `levels/`, one self-contained file each. A level declares its
+grid **and** its judge spec — the `category` to identify plus a few few-shot
+`(example, answer)` pairs — so the same logprob judge scores emotions, animals,
+or whatever a board asks for. To add one, drop a `levels/<name>.py` that defines
+`LEVEL = Level(...)`; it's auto-discovered and registered (`order` sets play
+order, `home` flags the boot board). In the grid, `"start"` is the home tile,
+`""` an empty walkable tile, and `"⏎"` a submit tile (a board can have several).
+Players walk between boards with the hand-drawn arrows once they've collected a
+target.
+
 ## Run locally
 
 ```bash
