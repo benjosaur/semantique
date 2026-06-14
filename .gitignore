@@ -12,3 +12,8 @@ __pycache__/
 
 # Test artifacts
 .playwright-mcp/
+
+# Audio source masters kept locally — only the downsampled copies under static/
+# ship. Anchored to the repo root so static/*.mp3 stays tracked.
+/Cipher2.mp3
+/pencil-scratch.mp3
