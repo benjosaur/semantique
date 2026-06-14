@@ -1231,19 +1231,18 @@
     chipsEl.appendChild(chip);
     const dur = 0.16 + word.length * 0.06; // writing pace scales with word length
     sfx.scratch(dur); // pen scratches for as long as the word takes to write
-    // The clip is just the left→right write-on; clear it once written so no
-    // residual inset lingers. A leftover right inset is a % of the chip's box,
-    // which for a 1-char tile (! ?) is too small to clear Caveat's forward
-    // slant — the lean would stay clipped forever.
+    // Reveal left→right by sweeping the right inset 100%→0. Two Safari traps to
+    // avoid (this runs in HF's iframe under WebKit): Safari CLAMPS negative
+    // clip-path insets to 0, and it won't repaint a clip-path that's later
+    // *removed* (clearProps) until a manual reflow. The old negative insets +
+    // clearProps therefore left the just-written word shaved off on the right
+    // until you inspect-element. So: end on a plain inset(0) — no negatives, no
+    // removal — and pad .sq-chip-text (cancelled in layout) so inset(0) wraps
+    // every glyph, slant and descender with room to spare.
     gsap.fromTo(
       text,
-      { clipPath: "inset(-20% 100% -20% -10%)" },
-      {
-        clipPath: "inset(-20% -10% -20% -10%)",
-        duration: dur,
-        ease: "none",
-        clearProps: "clipPath",
-      }
+      { clipPath: "inset(0 100% 0 0)" },
+      { clipPath: "inset(0 0% 0 0)", duration: dur, ease: "none" }
     );
   }
 
