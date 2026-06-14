@@ -35,7 +35,14 @@ hand-drawn `CanvasTexture` keycaps. The only server call is the judge.
 
 - **board / level** — one grid (a `Level`). Boards are swapped client-side.
 - **tile** — a grid cell. Reserved words: `"start"` (home, blank), `""` (walkable
-  blank), `"⏎"` (submit — hopping onto it sends the sentence to the judge).
+  blank), `"⏎"` (submit — hopping onto it sends the sentence to the judge),
+  `"portal"` (a spinning-spiral teleport — see below).
+- **portal** — a wordless tile rendered as a spinning ink spiral (a flat disc
+  child of the keycap, spun in the render loop). Hopping onto one whisks the
+  doodle to the next portal **clockwise** around the board centre: it shrinks
+  into the source spiral and expands out of the destination (`portalWarp` in
+  `game.js`; links computed by `buildPortalLinks`). The animal board (board 2)
+  has three. The landing hop costs budget; the teleport adds no word.
 - **target** — a goal word to collect, shown as the wrapping checklist chips in
   the HUD (`.sq-target-list`). Checks persist per board.
 - **swap tile** — hand-drawn arrow keys at a board's edge that walk you to the
