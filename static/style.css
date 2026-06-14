@@ -237,6 +237,13 @@
 }
 .sq-chip-text {
   display: inline-block;
+  /* The write-on (game.js) clips this box left→right. We clip with a plain
+     inset(0) — Safari clamps negative clip-path insets to 0 and won't repaint a
+     cleared clip-path, so any negative-inset reveal shaves Caveat's slant /
+     ascenders / descenders until a reflow. Pad the ink box and cancel the pad
+     in layout, so inset(0) always wraps every glyph with room to spare. */
+  padding: 0.25em 0.35em 0.2em 0;
+  margin: -0.25em -0.35em -0.2em 0;
 }
 
 /* ---- hint ---- */
