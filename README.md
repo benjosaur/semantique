@@ -8,6 +8,8 @@ sdk_version: 6.17.3
 app_file: app.py
 pinned: false
 license: mit
+short_description: Can you get AI to guess all the words?
+thumbnail: https://huggingface.co/spaces/benjosaur/semantique/resolve/main/static/social-card.png
 tags:
   - buildsmall
   - thousand-token-wood
@@ -18,7 +20,7 @@ tags:
 
 # Semantique 🐇
 
-**A prompt-hopping puzzle game.** Hop your doodle across a grid of word tiles
+**Can you get AI to guess all the words?** Hop your doodle across a grid of word tiles
 with the arrow keys. Every tile you land on appends its word to your sentence —
 and uses up one hop. Reach `⏎` and a small open LLM
 judges what emotion your sentence expresses. Check off every target emotion
