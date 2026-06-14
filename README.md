@@ -74,8 +74,6 @@ cp .env.example .env           # fill in MODAL_JUDGE_URL + MODAL_KEY/MODAL_SECRE
 python app.py                  # http://127.0.0.1:7860
 ```
 
-No GPU/Modal handy? `JUDGE_FAKE=1 python app.py` runs an offline stub judge.
-
 Tests: `pytest -m "not slow"` (pure logic) · `pytest -m slow` (live eval against
 the Modal judge on every board-attainable sentence; skipped if `MODAL_JUDGE_URL`
 is unset).
