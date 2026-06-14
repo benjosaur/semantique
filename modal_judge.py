@@ -167,8 +167,12 @@ def main(sentence: str = "not sad"):
     """Smoke test against the deployed/served class: `modal run modal_judge.py`."""
     labels = ["happy", "betrayed", "surprised"]
     messages = [
-        {"role": "system", "content": f"The targets are: {', '.join(labels)}."},
-        {"role": "user", "content": f"{sentence} is the same as"},
+        {
+            "role": "system",
+            "content": f"The targets are: {', '.join(labels)}. "
+            "Output the one most similar to the user's message.",
+        },
+        {"role": "user", "content": sentence},
     ]
     result = Judge().score_remote.remote(messages, labels)
     print(f"{sentence!r}")

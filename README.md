@@ -24,11 +24,11 @@ and uses up one hop. Reach `⏎` and a small open LLM
 judges what emotion your sentence expresses. Check off every target emotion
 on the list to collect them all.
 
-The judge uses **structured output via exact logprob filtering**: the prompt is
-your sentence followed by `is the same as`, and a single forward pass on a
-self-hosted open model scores how likely each candidate label is as the answer.
-The next-token distribution is masked to the board's labels and
-softmax-renormalized — constrained decoding made visible as the verdict card's
+The judge uses **structured output via exact logprob filtering**: a system prompt
+names the board's targets and asks for the one most similar to your sentence, and a
+single forward pass on a self-hosted open model scores how likely each candidate
+label is as the answer. The next-token distribution is masked to the board's labels
+and softmax-renormalized — constrained decoding made visible as the verdict card's
 probability bars.
 
 > Try it: for **happy**, `start → not → sad → ⏎` works.

@@ -36,8 +36,8 @@ SENTENCES = ["not sad", "great!", "very great!", "hurt", "yikes", "great sad"]
 
 
 def call(sentence: str) -> dict:
-    # Mirror the in-game call: every label is a target, board examples calibrate.
-    messages = build_messages(sentence, LEVEL.labels, LEVEL.examples)
+    # Mirror the in-game call: every label is a target.
+    messages = build_messages(sentence, LEVEL.labels)
     resp = requests.post(
         URL,
         json={"messages": messages, "labels": LEVEL.labels, "debug": True},
