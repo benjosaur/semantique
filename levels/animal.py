@@ -15,7 +15,7 @@ LEVEL = Level(
     title="critters",
     grid=[
         ["⏎", "portal", "ouch", "cylinder", "⏎"],
-        ["smart", "fur", "loud", "puppy", "?"],
+        ["acrobatic", "fur", "loud", "puppy", "?"],
         ["love", "not", "start", "sea", "portal"],
         ["small", "hate", "winged", "quiet", "big"],
         ["⏎", "portal", "frolick", "grass", "⏎"],
