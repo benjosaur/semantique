@@ -1978,6 +1978,15 @@
   againBtn.addEventListener("click", () => sfx.click());
   retryBtn.addEventListener("click", () => sfx.click());
 
+  // Enter clears the verdict card via its primary button — "hop again" after a
+  // verdict/death, "poke the judge again" on a judge failure — so you can
+  // dismiss the card from the keyboard instead of reaching for the mouse.
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || overlayEl.classList.contains("sq-hidden")) return;
+    e.preventDefault();
+    (againBtn.classList.contains("sq-hidden") ? retryBtn : againBtn).click();
+  });
+
   // ---- welcome modal ----
   // A one-time intro card, shown over the board as it drops in on game open.
   // The ⏎ keycap (or Enter/Escape, or a backdrop tap) dismisses it; gameplay
