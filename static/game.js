@@ -307,7 +307,13 @@
   camera.lookAt(0, 0.25, 0);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // Render the framebuffer at the device's pixel density (capped at 3 to bound
+  // fill-rate). Phones are dpr 3, so the old cap of 2 rendered at 2x and let the
+  // browser upscale to the 3x screen — the whole board looked soft ("low-rez")
+  // on mobile, more so now the board fills more of the width. The keycap TEXTURES
+  // stay capped at 2x (TEX_SCALE): a 768px tile texture already oversamples the
+  // on-screen tile, so a 3x texture would only add memory + boil-redraw cost.
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 3));
   stage.appendChild(renderer.domElement);
 
   // Tilt group: the whole board leans away from the viewer, 22° back from
