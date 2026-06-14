@@ -85,8 +85,8 @@
   const INK_SOFT = "#5a564c";
   const ACCENT = "#b3402e";
 
-  // A grid cell appends its word unless it's structural (start / blank / ⏎).
-  const appendsWord = (w) => w && w !== "start" && w !== "⏎";
+  // A grid cell appends its word unless it's structural (start / blank / ⏎ / wings).
+  const appendsWord = (w) => w && w !== "start" && w !== "⏎" && w !== "wings";
 
   // ---- HUD ----
   // The targets checklist: every label to collect. Checks persist per board
@@ -235,11 +235,43 @@
     ctx.stroke();
   }
 
+  // A wings keycap: a stamped pair of spread wings in accent ink — the "lift
+  // off" tile. Hopping onto it sprouts the doodle's wings and sends it airborne.
+  function drawWingsKeyIcon(ctx) {
+    const cx = TILE_PX / 2, cy = 200;
+    ctx.lineJoin = ctx.lineCap = "round";
+    for (const sign of [-1, 1]) {
+      const ax = cx + sign * 14, ay = cy + 6; // wing root, near the centre
+      const tipx = ax + sign * 128, tipy = cy - 70;
+      const elbx = cx + sign * 84, elby = cy - 40;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.quadraticCurveTo(elbx, elby - 40, tipx, tipy); // leading edge up to the tip
+      // scalloped trailing edge (feathers) back to the root
+      ctx.quadraticCurveTo(cx + sign * 96, cy + 6, cx + sign * 70, cy + 24);
+      ctx.quadraticCurveTo(cx + sign * 58, cy + 4, cx + sign * 44, cy + 32);
+      ctx.quadraticCurveTo(cx + sign * 34, cy + 10, ax, ay);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(255,253,247,0.92)";
+      ctx.fill();
+      ctx.strokeStyle = ACCENT;
+      ctx.lineWidth = 9;
+      ctx.stroke();
+      // a couple of feather divider strokes
+      ctx.lineWidth = 4.5;
+      wobblyLine(ctx, ax + sign * 10, ay - 8, elbx, elby + 4, 2); ctx.stroke();
+      wobblyLine(ctx, ax + sign * 26, ay + 2, elbx + sign * 8, elby + 22, 2); ctx.stroke();
+    }
+  }
+
   function drawTileCanvas(ctx, word) {
-    const special = word === "start" || word === "⏎";
+    const special = word === "start" || word === "⏎" || word === "wings";
     // only the submit tile keeps a dashed rim as a "press me" cue; the start
-    // tile reads as a normal solid keycap.
+    // and wings tiles read as normal solid keycaps.
     drawKeycapBase(ctx, special, word === "⏎");
+
+    // the wings tile is wordless — its icon IS the cue.
+    if (word === "wings") return drawWingsKeyIcon(ctx);
 
     // the word — start and empty tiles are blank squares, so they stay wordless
     const blank = !word || word === "start";
@@ -576,6 +608,36 @@
     wobblyLine(ctx, cx - 7, cy + 7, cx + 7, cy - 7, 1); ctx.stroke();
   }
 
+  // One feathered wing for the airborne doodle. `phase` 0..3 is the slow flap
+  // frame (0 = wings low/spread, 3 = wings raised); `sign` mirrors left/right
+  // about the body centre (x≈128). Drawn behind the torso so the roots tuck in.
+  let wingPhase = 0;
+  function oneWing(ctx, sign, phase) {
+    const up = phase / 3;
+    const ax = 128 + sign * 16, ay = 150; // root near the shoulder
+    const tipx = ax + sign * (54 + up * 6);
+    const tipy = ay - 18 - up * 66; // the tip swings up as it flaps
+    const elbx = ax + sign * 40, elby = ay - 8 - up * 30;
+    ctx.lineJoin = ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(ax, ay - 4);
+    ctx.quadraticCurveTo(elbx, elby - 24, tipx, tipy); // leading edge → tip
+    ctx.quadraticCurveTo(elbx - sign * 2, elby + 14, ax + sign * 4, ay + 18); // trailing edge back
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255,253,247,0.95)";
+    ctx.fill();
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 6;
+    ctx.stroke();
+    ctx.lineWidth = 3; // two feather strokes
+    wobblyLine(ctx, ax + sign * 8, ay - 2, elbx, elby - 6, 1.5); ctx.stroke();
+    wobblyLine(ctx, ax + sign * 16, ay + 4, elbx + sign * 4, elby + 6, 1.5); ctx.stroke();
+  }
+  function drawWings(ctx, phase) {
+    oneWing(ctx, -1, phase);
+    oneWing(ctx, 1, phase);
+  }
+
   function drawCharCanvas(ctx, pose) {
     const J = 2.5;
     ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
@@ -585,6 +647,9 @@
     ctx.strokeStyle = INK;
     ctx.fillStyle = INK;
     ctx.lineWidth = 7;
+
+    // wings ride behind the body, so paint them before the limbs/torso cover the roots
+    if (pose === "fly") drawWings(ctx, wingPhase);
 
     // limbs first, so the torso fill covers the shoulder/hip joins.
     // shoulders ~(104,142)/(152,142), hips ~(112,205)/(144,205), feet base y≈308
@@ -635,6 +700,14 @@
       limb(ctx, 144, 208, 180, 252, 212, 290);
       charFoot(ctx, 42, 293); charFoot(ctx, 214, 293);
       charHand(ctx, 40, 176); charHand(ctx, 216, 176);
+    } else if (pose === "fly") {
+      // floating upright: legs dangle loose, arms drift down-out (wings do the work)
+      limb(ctx, 108, 150, 96, 196, 92, 246);
+      limb(ctx, 148, 150, 160, 196, 164, 246);
+      limb(ctx, 106, 150, 88, 180, 80, 206);
+      limb(ctx, 150, 150, 168, 180, 176, 206);
+      charFoot(ctx, 90, 248); charFoot(ctx, 166, 248);
+      charHand(ctx, 80, 206); charHand(ctx, 176, 206);
     } else {
       // idle: arms down-out, legs straight
       limb(ctx, 104, 142, 90, 178, 82, 206);
@@ -745,6 +818,7 @@
   charTexture.colorSpace = THREE.SRGBColorSpace;
   const CHAR_STANDOFF = 0.12; // feet hover just above the keycap tops
   const CHAR_Z_OFF = -0.15; // stand toward the tile's top edge, not on the word
+  const CRUISE = 1.3; // charMesh.position.y while airborne — up "in the sky"
   const charGeometry = new THREE.PlaneGeometry(0.86, 1.075);
   charGeometry.translate(0, 1.075 / 2, 0); // pivot at the feet
   const charMesh = new THREE.Mesh(
@@ -769,6 +843,31 @@
     charPose = pose;
     drawCharCanvas(charCtx, charPose);
     charTexture.needsUpdate = true;
+  }
+
+  // While airborne the wings beat slowly: step the flap frame on its own timer
+  // and redraw the doodle. It runs independent of the idle "boil" (which pauses
+  // mid-hop), so the wings keep flapping through every glide.
+  let flapTimer = null, flapDir = 1;
+  function startFlap() {
+    stopFlap();
+    wingPhase = 0;
+    flapDir = 1;
+    flapTimer = setInterval(() => {
+      wingPhase += flapDir;
+      if (wingPhase >= 3) flapDir = -1;
+      else if (wingPhase <= 0) flapDir = 1;
+      if (charPose === "fly") {
+        drawCharCanvas(charCtx, "fly");
+        charTexture.needsUpdate = true;
+      }
+    }, 130);
+  }
+  function stopFlap() {
+    if (flapTimer) {
+      clearInterval(flapTimer);
+      flapTimer = null;
+    }
   }
 
   // "Sketch boil": re-jitter the ink so the board looks hand-drawn and alive.
@@ -938,6 +1037,13 @@
     },
     pop() {
       tone({ type: "triangle", from: 900, to: 1400, dur: 0.07, vol: 0.14 }); // chip appears
+    },
+    soar() {
+      tone({ type: "sine", from: 360, to: 820, dur: 0.34, vol: 0.16 }); // lift-off swell
+      tone({ type: "triangle", from: 520, to: 1040, dur: 0.2, vol: 0.07, at: 0.06 });
+    },
+    flap() {
+      thud({ dur: 0.07, vol: 0.1, freq: 280 }); // soft wing-beat whoosh
     },
     scratch(dur = 0.4) {
       if (!audio() || !scratchBuf) return; // sample still decoding → skip silently
@@ -1246,6 +1352,24 @@
   let pos = [...level.start];
   let words = []; // appended (non-structural) words
   let used = 0; // hops spent
+  // airborne hops remaining after a wings launch: 3 → two free glides, then the
+  // third descends and lands for real. 0 means grounded.
+  let flightLeft = 0;
+
+  // Cancel any flight in progress (board change / death / fresh attempt).
+  function resetFlight() {
+    flightLeft = 0;
+    stopFlap();
+  }
+
+  // After a hop settles, replay one buffered input so mashing feels responsive.
+  function pumpBuffered() {
+    if (buffered) {
+      const dir = buffered;
+      buffered = null;
+      tryMove(dir);
+    }
+  }
 
   // Each sentence word is handwritten in: the ink reveals left→right, like the
   // doodle is writing the sentence out.
@@ -1283,8 +1407,42 @@
       .to(charTilt, { z: 0, duration: 0.05 });
   }
 
+  // Airborne glide: the doodle floats tile-to-tile at cruise altitude. The two
+  // post-launch hops bob gently and stay up; the third (flightLeft === 1)
+  // descends to the board so land() can resolve the tile it comes down onto.
+  function glideTo(r, c) {
+    const { x, z } = charPosFor(r, c);
+    const descending = flightLeft === 1;
+    sfx.flap();
+    const tl = gsap.timeline({ onComplete: () => land(r, c) });
+    tl.to(charGroup.position, { x, z, duration: descending ? 0.4 : 0.34, ease: "power1.inOut" }, 0);
+    if (descending) {
+      tl.to(charMesh.position, { y: 0, duration: 0.4, ease: "power2.in" }, 0) // come down from the sky
+        .to(charMesh.scale, { x: 1.1, y: 0.86, duration: 0.06 }, 0.4) // touch-down squash
+        .to(charMesh.scale, { x: 1, y: 1, duration: 0.12, ease: "back.out(3)" }, 0.46);
+    } else {
+      tl.to(charMesh.position, { y: CRUISE + 0.14, duration: 0.17, ease: "sine.out" }, 0) // gentle float-bob
+        .to(charMesh.position, { y: CRUISE, duration: 0.17, ease: "sine.in" }, 0.17);
+    }
+  }
+
+  // Land on a wings tile → put on wings and lift off. The next three hops are
+  // airborne (see glideTo); play resumes once the rise settles.
+  function takeOff() {
+    flightLeft = 3;
+    state = "hopping";
+    setPose("fly");
+    startFlap();
+    sfx.soar();
+    gsap.timeline({ onComplete: () => { state = "idle"; pumpBuffered(); } })
+      .to(charMesh.position, { y: CRUISE, duration: 0.42, ease: "power2.out" }, 0)
+      .to(charMesh.scale, { x: 1.06, y: 1.06, duration: 0.16, ease: "sine.out" }, 0)
+      .to(charMesh.scale, { x: 1, y: 1, duration: 0.22, ease: "sine.inOut" }, 0.16);
+  }
+
   function hopTo(r, c) {
     state = "hopping";
+    if (flightLeft > 0) return glideTo(r, c); // airborne: glide, don't ground-hop
     const { x, z } = charPosFor(r, c);
     gsap.timeline({ onComplete: () => land(r, c) })
       .add(() => setPose("hop-up"))
@@ -1306,9 +1464,23 @@
     // a swap tile hops you to another board — costs no budget, adds no word.
     const swap = swapTileAt(r, c);
     if (swap) {
+      resetFlight();
       pressTile(swap);
       return loadLevel(swap.targetId);
     }
+
+    // airborne: the two post-launch hops glide free — no keypress, no word, no
+    // budget. Only the third (flightLeft === 1) descends to land for real.
+    if (flightLeft > 1) {
+      flightLeft -= 1;
+      state = "idle";
+      return pumpBuffered();
+    }
+    if (flightLeft === 1) {
+      flightLeft = 0;
+      stopFlap(); // wings fold as the doodle touches down; land for real below
+    }
+
     used += 1;
 
     // landed keycap press
@@ -1322,6 +1494,10 @@
 
     hud.update(used);
     setPose("idle");
+
+    // a wings tile launches flight: the doodle puts on wings and lifts off.
+    if (word === "wings") return takeOff();
+
     if (appendsWord(word)) {
       words.push(word);
       addChip(word);
@@ -1334,11 +1510,7 @@
       gsap.to(hintEl, { opacity: 1, duration: 0.3 });
     }
     state = "idle";
-    if (buffered) {
-      const dir = buffered;
-      buffered = null;
-      tryMove(dir);
-    }
+    pumpBuffered();
   }
 
   // Overflow death: a dizzy wobble, then the doodle crumples and slides
@@ -1346,6 +1518,7 @@
   function die() {
     state = "dead";
     buffered = null;
+    resetFlight();
     gsap.killTweensOf([charMesh.scale, charMesh.position, charGroup.position, charTilt]);
     hud.overflow();
     hintEl.textContent = "";
@@ -1518,6 +1691,7 @@
     used = 0;
     pos = [...level.start];
     buffered = null;
+    resetFlight();
     [...chipsEl.querySelectorAll(".sq-chip")].forEach((c) => c.remove());
     hud.reset();
     hintEl.textContent = remainingTargets().length
@@ -1719,6 +1893,7 @@
 
   // Swap the active board: rebuild tiles + checklist + swap tiles, reframe, poof in.
   function loadLevel(id) {
+    resetFlight();
     gsap.killTweensOf([charMesh.scale, charMesh.position, charGroup.position, charTilt, charMesh.material]);
     overlayEl.classList.add("sq-hidden");
     overlayEl.style.opacity = "";
