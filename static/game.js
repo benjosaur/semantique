@@ -765,23 +765,46 @@
     charTexture.needsUpdate = true;
   }
 
-  // "Sketch boil": re-jitter the ink a few times a second so it feels alive.
+  // "Sketch boil": re-jitter the ink so the board looks hand-drawn and alive.
+  // This used to redraw all ~16 hi-dpi (768px) tile canvases and re-upload their
+  // textures to the GPU in a single tick, three times a second — a ~70ms
+  // main-thread stall that dropped a frame each time and read as choppy/jagged
+  // animation (measured as 40-90ms frame spikes spaced ~340ms apart on
+  // HF/Safari). Two changes keep it lively without the hitch:
+  //   1. Only boil while idle. During a hop / judge bob / verdict the motion
+  //      already carries the life, and a stalled frame mid-motion is exactly
+  //      what reads as jank — so leave those frames for the animation.
+  //   2. Re-jitter only a slice of the board per tick, cycling through, so no
+  //      single tick redraws+uploads more than a few textures.
+  // One round-robin over every boilable surface (board tiles + the doodle + the
+  // tile sides), redrawing a small fixed slice per tick so a tick never redraws
+  // more than ~2 hi-dpi canvases — each tick stays well under a frame budget,
+  // and the cost is spread evenly instead of bursting. ~2 of ~18 surfaces every
+  // 100ms re-jitters each one roughly once a second: calm, but still alive.
+  let boilCursor = 0, boilBeat = 0;
   setInterval(() => {
-    if (document.hidden) return;
-    for (const t of tiles) {
-      drawTileCanvas(t.ctx, t.word);
-      t.texture.needsUpdate = true;
+    if (document.hidden || state !== "idle") return;
+    const surfaces = tiles.length + 2; // tiles + doodle + tile-sides
+    for (let n = 0; n < 2 && surfaces; n++, boilCursor++) {
+      const i = boilCursor % surfaces;
+      if (i < tiles.length) {
+        const t = tiles[i];
+        drawTileCanvas(t.ctx, t.word);
+        t.texture.needsUpdate = true;
+      } else if (i === tiles.length) {
+        drawCharCanvas(charCtx, charPose);
+        charTexture.needsUpdate = true;
+      } else {
+        drawTileSideCanvas(sideCtx);
+        sideTexture.needsUpdate = true;
+      }
     }
-    for (const s of swapTiles) {
+    for (const s of swapTiles) { // 0-2, only once a board is cleared — cheap
       drawSwapTileCanvas(s.ctx, s.dir, s.label);
       s.texture.needsUpdate = true;
     }
-    drawTileSideCanvas(sideCtx);
-    sideTexture.needsUpdate = true;
-    drawCharCanvas(charCtx, charPose);
-    charTexture.needsUpdate = true;
-    syncAudioUI();
-  }, 340);
+    if (boilBeat++ % 4 === 0) syncAudioUI(); // mute-slash boil, no rush
+  }, 100);
 
   // ---- sounds: a tiny Web Audio sketch-synth ----
   // Every cue is an oscillator doodle or a pinch of filtered noise — no
