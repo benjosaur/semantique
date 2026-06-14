@@ -5,10 +5,13 @@ candidate `labels` the judge scores among. Adding a board is one file under
 levels/ that defines `LEVEL = Level(...)` — see levels/__init__.py for the
 auto-discovery.
 
-Grid words are plain strings, with three reserved values:
+Grid words are plain strings, with four reserved values:
   "start"  the home tile (rendered blank, appends no word)
   ""       a walkable empty tile (rendered blank, appends no word)
   "⏎"      a submit tile — hopping onto one sends the sentence to the judge
+  "portal" a spinning-spiral teleport tile (appends no word); hopping onto one
+           whisks the doodle to the next portal clockwise around the board.
+           A board needs >= 2 portals for the links to mean anything.
 A board may have several "⏎" tiles; every other cell appends its word.
 """
 
