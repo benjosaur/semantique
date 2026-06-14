@@ -1146,6 +1146,11 @@
   let popOpen = false;
   function openPop() {
     popOpen = true;
+    // Kill any in-flight close so its onComplete can't re-hide us mid-reopen —
+    // a quick close→reopen otherwise leaves popOpen=true but display:none, and
+    // the next tap (on a now-invisible slider) falls through to the board and
+    // the outside-tap handler closes the mixer.
+    gsap.killTweensOf(popEl);
     popEl.classList.remove("sq-hidden");
     musicBtn.setAttribute("aria-expanded", "true");
     sfxBtn.setAttribute("aria-expanded", "true");
@@ -1161,7 +1166,11 @@
     sfxBtn.setAttribute("aria-expanded", "false");
     gsap.to(popEl, {
       autoAlpha: 0, y: -6, duration: 0.15,
-      onComplete: () => { popEl.classList.add("sq-hidden"); gsap.set(popEl, { clearProps: "opacity,transform,visibility" }); },
+      onComplete: () => {
+        if (popOpen) return; // reopened during the fade — leave it visible
+        popEl.classList.add("sq-hidden");
+        gsap.set(popEl, { clearProps: "opacity,transform,visibility" });
+      },
     });
   }
   function togglePop() { popOpen ? closePop() : openPop(); }
@@ -1172,6 +1181,13 @@
   sfxBtn.addEventListener("click", onBarTap);
   volMusicBtn.addEventListener("click", () => { toggleMute("music"); sfx.click(); });
   volSfxBtn.addEventListener("click", () => { const was = sfxVol > 0; toggleMute("sfx"); if (!was) sfx.click(); });
+
+  // Stop pointer events that start inside the mixer from reaching the
+  // outside-tap handler at all. The .contains() guard below should already
+  // spare them, but under Safari/WebKit a slider's pointer capture can retarget
+  // the event so .contains() reads false and the drag dismisses the mixer —
+  // exactly the "click a slider and it closes" bug. Halting here is airtight.
+  popEl.addEventListener("pointerdown", (e) => e.stopPropagation());
 
   // dismiss on an outside tap or Escape
   document.addEventListener("pointerdown", (e) => { if (popOpen && !audioCluster.contains(e.target)) closePop(); });
