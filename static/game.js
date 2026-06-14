@@ -447,8 +447,9 @@
 
   // (Re)build the swap tile for the active board: a single forward tile, shown
   // once every target here is collected, that progresses to the next board.
-  // Progression is one-way — there is no back tile. Then recentre the board so
-  // the grid plus its lone side tile sit balanced under the camera.
+  // Progression is one-way — there is no back tile. The grid stays centred on
+  // its own; the lone swap tile sits just off the right edge without shifting
+  // the board, so the visible grid reads centred from the start.
   function buildSwapTiles() {
     for (const s of swapTiles) {
       board.remove(s.mesh);
@@ -461,7 +462,7 @@
     if (hasNext) {
       addSwapTile(level.start[0], COLS, ORDER[i + 1], +1, remainingTargets().length === 0);
     }
-    board.position.x = hasNext ? -(SPACING + SWAP_GAP) / 2 : 0;
+    board.position.x = 0; // grid stays centred; the swap tile never decentres it
   }
 
   // Board complete: poof the forward swap tile in so the doodle can hop onward.
