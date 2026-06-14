@@ -1,0 +1,28 @@
+name: Deploy Modal judge
+
+# A deployed Modal app is a snapshot of the code at `modal deploy` time, so the
+# GPU judge only updates when we redeploy. Do it automatically when modal_judge.py
+# lands on main. The stable *.modal.run URL is unchanged by redeploys, so the HF
+# Space's MODAL_JUDGE_URL secret keeps working without coordination.
+on:
+  push:
+    branches: [main]
+    paths: ['modal_judge.py']   # skip redeploys for unrelated UI/audio commits
+  workflow_dispatch: {}         # allow manual redeploys (e.g. to force an image rebuild)
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    env:
+      # Repo secrets — Modal dashboard → Settings → API Tokens (`modal token new`).
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # The runner only needs the CLI; torch/transformers build remotely on Modal.
+      - run: pip install modal
+      - run: modal deploy modal_judge.py
