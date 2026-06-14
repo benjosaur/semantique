@@ -27,7 +27,7 @@ hand-drawn `CanvasTexture` keycaps. The only server call is the judge.
 | `app.py` | Gradio wrapper: builds the `GAME` payload, mounts the `gr.HTML`, wires `judge` as a `server_function`. |
 | `static/game.js` | ~1.7k lines: scene setup, tile/keycap drawing, character doodle, swap tiles, HUD, audio mixer, `resize()`/`reframe()` camera framing, judge call + verdict card. |
 | `static/style.css` | Paper-and-ink theme; the phone layout lives in the `@media (max-width: 560px), (max-height: 540px)` block at the bottom. |
-| `levels/*.py` | One board per file, auto-discovered. `Level(...)` dataclass in `levels/_base.py`. `emotion.py` is `home` (4×4, 8 targets); `animal.py` (5×5, 9 targets). |
+| `levels/*.py` | One board per file, auto-discovered. `Level(...)` dataclass in `levels/_base.py`. `emotion.py` is `home` (4×4, 8 targets); `animal.py` (5×5, 8 targets). |
 | `judge.py` | Builds the judge prompt and POSTs the assembled sentence to the Modal endpoint. |
 | `modal_judge.py` | The self-hosted GPU judge (MiniCPM3-4B on Modal): exact per-label logprobs. Auto-deployed on push to `main` via `.github/workflows/deploy-modal.yml`. |
 
