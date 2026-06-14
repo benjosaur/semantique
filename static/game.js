@@ -1637,6 +1637,15 @@
   }
   new ResizeObserver(resize).observe(stage);
 
+  // The targets checklist wraps to several lines on phones, so the HUD height is
+  // variable. Publish it as --hud-h; the phone CSS drops the prompt strip and the
+  // board below it so the wrapped checklist never overlaps the keys. Re-measures
+  // on board switch (8 vs 10 targets) and web-font load via the observer.
+  const hudEl = element.querySelector(".sq-hud");
+  const syncHud = () => root.style.setProperty("--hud-h", hudEl.offsetHeight + "px");
+  new ResizeObserver(syncHud).observe(hudEl);
+  syncHud();
+
   // The board never moves, so the billboard's parent correction is constant.
   const _bbParentInv = new THREE.Quaternion();
   charGroup.getWorldQuaternion(_bbParentInv).invert();
