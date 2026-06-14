@@ -1388,7 +1388,7 @@
   function showDeathCard() {
     sentenceEl.textContent = "out of hops…";
     barsEl.innerHTML = "";
-    stampEl.textContent = "out of hops!";
+    stampEl.textContent = "context window exceeded";
     stampEl.classList.remove("sq-win");
     stampEl.style.opacity = 0;
     retryBtn.classList.add("sq-hidden");
