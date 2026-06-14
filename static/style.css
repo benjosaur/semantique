@@ -39,9 +39,17 @@
 
 .sq-stage {
   position: absolute;
+  left: 0;
+  right: 0;
+  /* On wide windows the single-row HUD (~70px) leaves the centred board enough
+     headroom to sit below the sentence on its own, so keep the stage full-height
+     for the biggest board. As the window narrows the checklist wraps the HUD
+     taller (--hud-h grows), pushing the sentence down onto the board — so once
+     --hud-h passes the one-row height, drop the stage to keep the board clear. */
+  top: max(0px, calc((var(--hud-h, 70px) - 70px) * 1.6));
   /* Reserve the bottom band the hint line lives in: the board reframes into the
      shorter stage, so tiles never render under "arrow keys / WASD to hop". */
-  inset: 0 0 calc(max(18px, env(safe-area-inset-bottom)) + 34px) 0;
+  bottom: calc(max(18px, env(safe-area-inset-bottom)) + 34px);
 }
 .sq-stage canvas {
   display: block;
@@ -211,9 +219,14 @@
   position: absolute;
   left: 0;
   right: 0;
-  top: 62px;
+  /* Sit a fixed gap below the target checklist. The HUD grows taller as the
+     checklist wraps on narrower windows, so track its measured height (--hud-h,
+     published by game.js) instead of a fixed offset — the sentence then clears
+     the targets at every width, not just the widest. */
+  top: calc(var(--hud-h, 69px) + 36px);
   display: flex;
   align-items: center;
+  justify-content: center; /* sentence grows from the centre */
   flex-wrap: wrap;
   gap: 8px;
   padding: 6px 28px 0;
@@ -224,6 +237,7 @@
   display: inline-flex;
   flex-wrap: wrap;
   align-items: baseline;
+  justify-content: center;
   gap: 14px;
 }
 .sq-chip {
@@ -367,18 +381,15 @@
 
 .sq-hidden { display: none !important; }
 
-/* ---- compact / narrow ---- */
-/* The targets checklist holds 8-10 chips — at the desktop font the emotion board
-   alone needs ~1220px to keep title + checklist + counter on one row, so anything
-   narrower (phones AND mid-width windows/tablets) would wrap the big chips over
-   the board. Below that width the HUD WRAPS instead: the title and the hop counter
-   / audio cluster keep the first row (title left, counter right via space-between),
-   and the checklist drops to its own full-width second row (order:3,
-   flex-basis:100%) in a smaller font, where it wraps over fewer, wider lines. The
-   wrapped HUD is a variable height, so game.js publishes it as --hud-h and the
-   prompt strip + board drop below it (instead of colliding). Short (landscape)
-   viewports qualify too. */
-@media (max-width: 1240px), (max-height: 540px) {
+/* ---- compact / mobile ---- */
+/* Phones (and short landscape viewports) only. The tablet/desktop single-row HUD
+   holds well down to phone widths, so only here does the HUD WRAP: the title and
+   the hop counter / audio cluster keep the first row (title left, counter right
+   via space-between), and the checklist drops to its own full-width second row
+   (order:3, flex-basis:100%) in a smaller font, where it wraps over fewer, wider
+   lines. The wrapped HUD is a variable height, so game.js publishes it as --hud-h
+   and the prompt strip + board drop below it (instead of colliding). */
+@media (max-width: 560px), (max-height: 540px) {
   .sq-hud { padding-left: 12px; padding-right: 12px; gap: 8px 10px; flex-wrap: wrap; }
   .sq-title { font-size: 18px; order: 1; }
   .sq-targets { order: 3; flex: 1 1 100%; min-width: 0; }
