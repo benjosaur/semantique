@@ -36,19 +36,29 @@
     // taller than our component, so the iframe-resizer measures `root + chrome`.
     // Size root so the WHOLE document equals the slot: subtract that measured
     // excess. Cached so repeat getPageInfo events don't oscillate.
-    let chrome = 0;
+    let chrome = 0, lastKey = "";
     const apply = (info) => {
       // Available slot = parent viewport minus how far the iframe sits below the
-      // top (HF's header); clamped so it never exceeds one screen (no scroll).
-      const avail = Math.min(info.clientHeight, info.clientHeight - info.offsetTop + info.scrollTop);
+      // top (HF's header). Deliberately SCROLL-INVARIANT: clientHeight and
+      // offsetTop don't change as the parent scrolls, only scrollTop does — so
+      // folding scrollTop in (as we used to) refit the board on every scroll
+      // tick, resizing and REALLOCATING the WebGL drawing buffer each time. That
+      // was the "lags much more on HF" jank, and the board reframing mid-scroll
+      // is what clipped the keycap text. Keep avail off scrollTop and the
+      // constant getPageInfo scroll events collapse into no-ops below.
+      const avail = Math.max(0, info.clientHeight - info.offsetTop);
+      const key = avail + "x" + info.clientWidth;
+      if (key === lastKey) return; // viewport unchanged — a pure scroll, skip
+      lastKey = key;
       fit(avail - chrome);
       requestAnimationFrame(() => {
         const excess = document.body.offsetHeight - rootEl.offsetHeight;
         if (excess >= 0 && excess !== chrome) { chrome = excess; fit(avail - chrome); }
       });
     };
-    // getPageInfo re-fires on parent scroll/resize, so a rotating phone or a
-    // collapsing mobile URL bar stays fitted.
+    // getPageInfo re-fires on parent scroll/resize; a genuine viewport change
+    // (rotating phone, collapsing mobile URL bar) shifts clientHeight and refits,
+    // while plain scrolling now no-ops via the key guard above.
     const poll = setInterval(() => {
       if (!window.parentIFrame) return;
       clearInterval(poll);
