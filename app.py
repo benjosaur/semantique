@@ -1,3 +1,4 @@
+import base64
 import pathlib
 
 import gradio as gr
@@ -7,12 +8,18 @@ from levels import HOME_ID, LEVEL_ORDER, LEVELS
 
 STATIC = pathlib.Path(__file__).parent / "static"
 
+# The pen-scratch SFX, inlined as a data URI so it needs no static-file route
+# (which is brittle inside HF Spaces' iframe). The client decodes it once into
+# a Web Audio buffer; see sfx.scratch in game.js.
+_SCRATCH = base64.b64encode((STATIC / "pencil-scratch.mp3").read_bytes()).decode()
+
 # Everything the board needs to render and switch levels client-side: the
 # play order, the boot board, and each level's client-facing slice.
 GAME = {
     "levels": [LEVELS[lid].client_value() for lid in LEVEL_ORDER],
     "order": LEVEL_ORDER,
     "home": HOME_ID,
+    "scratchAudio": "data:audio/mpeg;base64," + _SCRATCH,
 }
 
 HEAD = """
