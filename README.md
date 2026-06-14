@@ -74,10 +74,6 @@ cp .env.example .env           # fill in MODAL_JUDGE_URL + MODAL_KEY/MODAL_SECRE
 python app.py                  # http://127.0.0.1:7860
 ```
 
-Tests: `pytest -m "not slow"` (pure logic) · `pytest -m slow` (live eval against
-the Modal judge on every board-attainable sentence; skipped if `MODAL_JUDGE_URL`
-is unset).
-
 ## Run on Modal (the GPU judge)
 
 The judge model is self-hosted on [Modal](https://modal.com) — serverless GPU,
