@@ -314,7 +314,13 @@
   camera.lookAt(0, 0.25, 0);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // Render the framebuffer at the device's pixel density (capped at 3 to bound
+  // fill-rate). Phones are dpr 3, so the old cap of 2 rendered at 2x and let the
+  // browser upscale to the 3x screen — the whole board looked soft ("low-rez")
+  // on mobile, more so now the board fills more of the width. The keycap TEXTURES
+  // stay capped at 2x (TEX_SCALE): a 768px tile texture already oversamples the
+  // on-screen tile, so a 3x texture would only add memory + boil-redraw cost.
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 3));
   stage.appendChild(renderer.domElement);
 
   // Tilt group: the whole board leans away from the viewer, 22° back from
@@ -1671,9 +1677,14 @@
     // top chrome (HUD + sentence) and bottom hint would clip the board. Zoom out
     // a touch more and aim higher, dropping the board into the clear middle band.
     const short = h <= 540;
-    // fov stays 32°; dolly the camera so the board fits either way
+    // fov stays 32°; dolly the camera so the board fits either way.
+    // Portrait phones: trim the side margin so the board fills the narrow width
+    // instead of floating small in the middle (landscape keeps the wider margin
+    // and the zoom-out floor below, so its short height doesn't clip the board).
+    const narrow = w <= 560 && !short;
+    const hMargin = narrow ? 1.7 : 0.2;
     // board-sized base, narrow-window fit, plus the landscape-phone zoom-out floor
-    const need = Math.max(viewUnits, (viewUnits - 0.2) / aspect, short ? 9.4 : 0);
+    const need = Math.max(viewUnits, (viewUnits - hMargin) / aspect, short ? 9.4 : 0);
     camera.position.z = need / 2 / Math.tan(THREE.MathUtils.degToRad(32 / 2));
     camera.aspect = aspect;
     camera.lookAt(0, short ? 0.55 : 0.25, 0);
@@ -1681,6 +1692,15 @@
     renderer.setSize(w, h);
   }
   new ResizeObserver(resize).observe(stage);
+
+  // The targets checklist wraps to several lines on phones, so the HUD height is
+  // variable. Publish it as --hud-h; the phone CSS drops the prompt strip and the
+  // board below it so the wrapped checklist never overlaps the keys. Re-measures
+  // on board switch (8 vs 10 targets) and web-font load via the observer.
+  const hudEl = element.querySelector(".sq-hud");
+  const syncHud = () => root.style.setProperty("--hud-h", hudEl.offsetHeight + "px");
+  new ResizeObserver(syncHud).observe(hudEl);
+  syncHud();
 
   // The board never moves, so the billboard's parent correction is constant.
   const _bbParentInv = new THREE.Quaternion();

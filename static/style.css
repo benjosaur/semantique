@@ -367,26 +367,32 @@
 
 .sq-hidden { display: none !important; }
 
-/* ---- phones ---- */
-/* Compact the top chrome on phones — narrow (portrait) OR short (landscape, where
-   the board is wide but only ~400px tall and the desktop HUD would overlap it).
-   Keep the HUD on a single line (no wrap → no collision with the absolutely
-   positioned prompt strip) by shrinking it and dropping the decorative title.
-   The board reframes itself via the JS resize(), so only the overlay text needs
-   to scale down here. */
-@media (max-width: 560px), (max-height: 540px) {
-  .sq-hud { padding-left: 10px; padding-right: 10px; }
-  .sq-title { display: none; }
-  .sq-targets { font-size: 14px; flex-shrink: 0; white-space: nowrap; }
-  .sq-target-list { gap: 4px; margin-left: 3px; flex-wrap: nowrap; font-size: 20px; }
-  .sq-target-item { padding: 0 5px 1px; }
-  .sq-context { gap: 4px; flex-shrink: 0; }
-  .sq-context-count { font-size: 17px; min-width: 30px; }
-  .sq-hud-right { gap: 8px; }
+/* ---- compact / narrow ---- */
+/* The targets checklist holds 8-10 chips — at the desktop font the emotion board
+   alone needs ~1220px to keep title + checklist + counter on one row, so anything
+   narrower (phones AND mid-width windows/tablets) would wrap the big chips over
+   the board. Below that width the HUD WRAPS instead: the title and the hop counter
+   / audio cluster keep the first row (title left, counter right via space-between),
+   and the checklist drops to its own full-width second row (order:3,
+   flex-basis:100%) in a smaller font, where it wraps over fewer, wider lines. The
+   wrapped HUD is a variable height, so game.js publishes it as --hud-h and the
+   prompt strip + board drop below it (instead of colliding). Short (landscape)
+   viewports qualify too. */
+@media (max-width: 1240px), (max-height: 540px) {
+  .sq-hud { padding-left: 12px; padding-right: 12px; gap: 8px 10px; flex-wrap: wrap; }
+  .sq-title { font-size: 18px; order: 1; }
+  .sq-targets { order: 3; flex: 1 1 100%; min-width: 0; }
+  .sq-target-list { display: flex; width: 100%; gap: 5px 6px; margin-left: 0; font-size: 16px; }
+  .sq-target-item { padding: 0 6px 1px; }
+  .sq-context { gap: 4px; }
+  .sq-context-count { font-size: 18px; min-width: 28px; }
+  .sq-hud-right { order: 2; gap: 10px; }
   .sq-audio { gap: 4px; }
   .sq-audio-btn, .sq-audio-btn canvas { width: 24px; height: 24px; }
 
-  .sq-prompt { top: 52px; padding-left: 10px; padding-right: 10px; gap: 6px; }
+  /* drop the prompt + board below the variable-height wrapped checklist */
+  .sq-prompt { top: var(--hud-h, 52px); padding-left: 12px; padding-right: 12px; gap: 6px; }
+  .sq-stage { top: calc(var(--hud-h, 52px) + 38px); }
   .sq-chips { gap: 9px; }
   .sq-chip { font-size: 26px; }
 
