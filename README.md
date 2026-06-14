@@ -91,10 +91,11 @@ modal serve modal_judge.py              # dev: hot-reload, prints a temporary UR
 modal deploy modal_judge.py             # prod: stable URL
 ```
 
-`modal_judge.py` loads `openbmb/MiniCPM3-4B` on an L4, caches weights in a Modal
-Volume, and snapshots the loaded model to keep cold starts to a few seconds. The
-endpoint takes `{"messages", "labels"}` (the prompt is built in `judge.py`) and
-returns exact per-label logprobs.
+`modal_judge.py` loads `openbmb/MiniCPM3-4B` on an L4, with the weights baked into
+the container image (pinned revision, loaded offline) and the CPU-loaded model
+captured in a memory snapshot to keep cold starts to a few seconds. The endpoint
+takes `{"messages", "labels"}` (the prompt is built in `judge.py`) and returns
+exact per-label logprobs.
 
 Protect it with a **proxy-auth token** (Modal dashboard → Settings → Proxy Auth
 Tokens) and put the URL + token in `.env` (local) or the Space secrets (deploy):
@@ -109,7 +110,7 @@ Modal is the **runtime for the load-bearing AI**: every verdict is a live GPU
 forward pass on Modal, not a hosted-API call. Going self-hosted is what unlocks
 reading the *full* next-token distribution — we score each emotion word's entire
 token sequence and renormalize over exact logprobs, instead of being capped at a
-provider's top-20. Scale-to-zero + a weight-cache Volume + memory snapshots keep
+provider's top-20. Scale-to-zero + image-baked weights + memory snapshots keep
 it cheap and fast.
 
 ## Deploy as a (private) HF Space
