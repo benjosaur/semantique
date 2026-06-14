@@ -13,7 +13,7 @@ LEVEL = Level(
     title="feelings",
     grid=[
         ["yikes", "very", "fast", "annoy"],
-        ["little", "start", "great", "little"],
+        ["little", "start", "great", "!"],
         ["hurt", "not", "sad", "⏎"],
         ["again", "?", "angry", "disturb"],
     ],
