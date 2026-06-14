@@ -298,7 +298,9 @@
     const blank = !word || word === "start" || word === "portal";
     if (!blank) {
       ctx.fillStyle = special ? INK_SOFT : INK;
-      let size = word.length > 6 ? 64 : 76;
+      // bigger, more legible keycap text; the longest words (≥9 chars) drop a
+      // tier so they still clear the cap's rounded rim (safe width ≈ 320px).
+      let size = word.length > 8 ? 72 : word.length > 5 ? 80 : 88;
       ctx.font = `400 ${size}px "Patrick Hand"`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -307,20 +309,19 @@
   }
 
   // A board-swap keycap: a special dashed cap stamped with a big accent arrow
-  // (→, to the next board) and the destination board's title below.
-  function drawSwapTileCanvas(ctx, dir, label) {
+  // (↓, the world tile sits below the board — you hop down onto it) and the
+  // destination board's title beneath the arrow.
+  function drawSwapTileCanvas(ctx, label) {
     drawKeycapBase(ctx, true, true);
     const cx = TILE_PX / 2;
-    const ay = 150; // arrow centre line
-    const half = 78;
-    const tail = cx - dir * half;
-    const tip = cx + dir * half;
+    const top = 86, tip = 212; // vertical shaft, pointing down
+    const barb = 52;
     ctx.strokeStyle = ACCENT;
     ctx.lineJoin = ctx.lineCap = "round";
     ctx.lineWidth = 20;
-    wobblyLine(ctx, tail, ay, tip, ay, 4); ctx.stroke(); // shaft
-    wobblyLine(ctx, tip, ay, tip - dir * 58, ay - 48, 3); ctx.stroke(); // upper barb
-    wobblyLine(ctx, tip, ay, tip - dir * 58, ay + 48, 3); ctx.stroke(); // lower barb
+    wobblyLine(ctx, cx, top, cx, tip, 4); ctx.stroke(); // shaft
+    wobblyLine(ctx, cx, tip, cx - barb, tip - 50, 3); ctx.stroke(); // left barb
+    wobblyLine(ctx, cx, tip, cx + barb, tip - 50, 3); ctx.stroke(); // right barb
 
     if (label) {
       ctx.fillStyle = INK;
@@ -328,7 +329,7 @@
       ctx.font = `400 ${size}px "Patrick Hand"`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(label, cx + rand(-2, 2), 268 + rand(-1, 2));
+      ctx.fillText(label, cx + rand(-2, 2), 288 + rand(-1, 2));
     }
   }
 
@@ -571,21 +572,24 @@
   }
 
   // ---- board-swap tiles ----
-  // Lone keycaps just off the grid edge: hop onto one and it loads another
-  // board. They live OUTSIDE the rectangular `tiles` array (so the r*COLS+c
-  // index math is untouched) at virtual cells (startRow, COLS) / (startRow, -1),
-  // pushed an extra SWAP_GAP out so they read as a tile "by itself".
-  let swapTiles = []; // { mesh, ctx, texture, row, col, targetId, dir, active, x, z, label }
-  const SWAP_GAP = 0.55;
+  // A lone keycap just below the grid: hop down onto it and it loads the next
+  // board. It lives OUTSIDE the rectangular `tiles` array (so the r*COLS+c index
+  // math is untouched) at the virtual cell (ROWS, startCol) — the next grid row,
+  // straight under the start column, flush against the board (no extra gap).
+  // Below (not off the right edge) so it never overflows the narrow phone width,
+  // and so every board can reach it: a board's right edge may be a portal or
+  // other non-restable tile, but the cell above the bottom edge is always
+  // walkable.
+  let swapTiles = []; // { mesh, ctx, texture, row, col, targetId, active, x, z, label }
   const swapTileAt = (r, c) =>
     swapTiles.find((s) => s.active && s.row === r && s.col === c) || null;
 
-  function addSwapTile(row, col, targetId, dir, active) {
+  function addSwapTile(row, col, targetId, active) {
     const label = LEVELS[targetId].title;
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = TILE_PX * TEX_SCALE;
     const ctx = canvas.getContext("2d");
-    drawSwapTileCanvas(ctx, dir, label);
+    drawSwapTileCanvas(ctx, label);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.anisotropy = maxAniso;
@@ -595,20 +599,20 @@
       new THREE.MeshBasicMaterial({ map: texture, transparent: false }),
       sideMaterial,
     ]);
-    const base = tileAt(row, col);
-    const x = base.x + dir * SWAP_GAP;
+    const base = tileAt(row, col); // (ROWS, startCol): the next grid row, flush
+    const x = base.x;
     const z = base.z;
     mesh.position.set(x, -TILE_DEPTH / 2, z);
     mesh.visible = active;
     board.add(mesh);
-    swapTiles.push({ mesh, ctx, texture, row, col, targetId, dir, active, x, z, label });
+    swapTiles.push({ mesh, ctx, texture, row, col, targetId, active, x, z, label });
   }
 
   // (Re)build the swap tile for the active board: a single forward tile, shown
   // once every target here is collected, that progresses to the next board.
-  // Progression is one-way — there is no back tile. The grid stays centred on
-  // its own; the lone swap tile sits just off the right edge without shifting
-  // the board, so the visible grid reads centred from the start.
+  // Progression is one-way — there is no back tile. It hangs just below the
+  // start column without shifting the grid, so the board reads centred from the
+  // start.
   function buildSwapTiles() {
     for (const s of swapTiles) {
       board.remove(s.mesh);
@@ -619,14 +623,14 @@
     const i = ORDER.indexOf(level.id);
     const hasNext = i < ORDER.length - 1;
     if (hasNext) {
-      addSwapTile(level.start[0], COLS, ORDER[i + 1], +1, remainingTargets().length === 0);
+      addSwapTile(ROWS, level.start[1], ORDER[i + 1], remainingTargets().length === 0);
     }
     board.position.x = 0; // grid stays centred; the swap tile never decentres it
   }
 
   // Board complete: poof the forward swap tile in so the doodle can hop onward.
   function revealForwardSwap() {
-    const s = swapTiles.find((t) => t.dir > 0 && !t.active);
+    const s = swapTiles.find((t) => !t.active);
     if (!s) return;
     s.active = true;
     s.mesh.visible = true;
@@ -1008,8 +1012,8 @@
         sideTexture.needsUpdate = true;
       }
     }
-    for (const s of swapTiles) { // 0-2, only once a board is cleared — cheap
-      drawSwapTileCanvas(s.ctx, s.dir, s.label);
+    for (const s of swapTiles) { // 0-1, only once a board is cleared — cheap
+      drawSwapTileCanvas(s.ctx, s.label);
       s.texture.needsUpdate = true;
     }
     if (boilBeat++ % 4 === 0) syncAudioUI(); // mute-slash boil, no rush
@@ -2090,12 +2094,19 @@
   stage.addEventListener("pointercancel", () => (swStart = null));
 
   // ---- camera framing ----
-  let viewUnits = 7.0; // world units visible vertically; sized to the board by reframe()
+  // The board's world-space extents, set by reframe(): boardW across, boardH down
+  // the screen. Kept apart so resize() fits width and height independently — a
+  // narrow phone then fills its width with big tiles instead of letting the tall
+  // below-board world tile shrink the grid to fit a width it doesn't need.
+  let boardW = 7.0, boardH = 7.0;
   function reframe() {
-    // active swap tiles widen the board by one gapped column on each side they're on
-    const horiz = (COLS - 1) * SPACING + TILE_SIZE + swapTiles.length * (SPACING + SWAP_GAP);
-    const vert = (ROWS - 1) * SPACING + TILE_SIZE;
-    viewUnits = Math.max(horiz, vert) + 1.2; // a little margin around the board
+    boardW = (COLS - 1) * SPACING + TILE_SIZE;
+    // The world tile sits one row below the grid (flush). The grid stays centred,
+    // so to keep that one-sided extra row in frame we reserve a row on BOTH sides
+    // of centre — otherwise the tile drops off the bottom. Reserving it also keeps
+    // the height-bound (desktop) board small enough to clear the top chrome. It's
+    // reserved even while the tile is hidden, so the framing never jumps.
+    boardH = (ROWS - 1) * SPACING + TILE_SIZE + swapTiles.length * 2 * SPACING;
     resize();
   }
   function resize() {
@@ -2106,19 +2117,20 @@
     // top chrome (HUD + sentence) and bottom hint would clip the board. Zoom out
     // a touch more and aim higher, dropping the board into the clear middle band.
     const short = h <= 540;
-    // fov stays 32°; dolly the camera so the board fits either way.
-    // Portrait phones: trim the side margin so the board fills the narrow width
-    // instead of floating small in the middle (landscape keeps the wider margin
-    // and the zoom-out floor below, so its short height doesn't clip the board).
+    // Portrait phones trim the side margin so the grid fills the narrow width;
+    // wider windows keep a roomier margin (it doesn't bind there anyway).
     const narrow = w <= 560 && !short;
-    const hMargin = narrow ? 1.7 : 0.2;
-    // board-sized base, narrow-window fit, plus the landscape-phone zoom-out floor
-    const need = Math.max(viewUnits, (viewUnits - hMargin) / aspect, short ? 9.4 : 0);
+    const vMargin = 1.2;
+    const hMargin = narrow ? 0.4 : 1.0;
+    // fov stays 32°. Frame enough vertical world units to clear the board's
+    // height AND enough that the framed width (need * aspect) clears its width;
+    // plus the landscape-phone zoom-out floor.
+    const need = Math.max(boardH + vMargin, (boardW + hMargin) / aspect, short ? 9.4 : 0);
     camera.position.z = need / 2 / Math.tan(THREE.MathUtils.degToRad(32 / 2));
     camera.aspect = aspect;
-    // The stage now starts below the HUD + sentence, so the board centres in its
-    // own band: barely bias it down on wide/tall windows. Landscape phones still
-    // aim high to clear chrome top-and-bottom; portrait phones keep their nudge.
+    // The stage starts below the HUD + sentence, so the board centres in its own
+    // band: barely bias it down on wide/tall windows. Landscape phones aim high to
+    // clear chrome top-and-bottom; portrait phones keep a gentler nudge.
     camera.lookAt(0, short ? 0.55 : narrow ? 0.25 : 0.06, 0);
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
