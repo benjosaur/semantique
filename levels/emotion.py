@@ -18,8 +18,8 @@ LEVEL = Level(
         ["again", "?", "angry", "disturb"],
     ],
     start=(1, 1),  # row, col of the start tile
-    targets=["happy", "elated", "irked", "sarcastic", "distraught", "furious", "betrayed", "surprised"],  # collect them all
-    labels=["happy", "elated", "irked", "sarcastic", "distraught", "furious", "betrayed", "surprised"],
+    targets=["happy", "elated", "irked", "scared", "distraught", "furious", "betrayed"],  # collect them all
+    labels=["happy", "elated", "irked", "scared", "distraught", "furious", "betrayed"],
     budget=10,
     order=0,
     home=True,
