@@ -11,7 +11,6 @@ client-side. The candidate set is what makes the answer an emotion on one board
 and an animal on another.
 
 `score_labels()` is the only seam to the model: it POSTs to the Modal endpoint.
-Set JUDGE_FAKE=1 for an offline stub (no GPU, no network).
 """
 
 import math
@@ -80,7 +79,7 @@ def score_labels(
     candidate `labels` are what the endpoint scores and constrains the answer to.
     """
     if not MODAL_JUDGE_URL:
-        raise RuntimeError("MODAL_JUDGE_URL is not set (deploy modal_judge.py, or use JUDGE_FAKE=1)")
+        raise RuntimeError("MODAL_JUDGE_URL is not set (deploy modal_judge.py — see README)")
     headers = {}
     if MODAL_KEY and MODAL_SECRET:  # Modal proxy auth
         headers = {"Modal-Key": MODAL_KEY, "Modal-Secret": MODAL_SECRET}
@@ -116,16 +115,9 @@ def judge(payload: dict) -> dict:
         }
     sentence = assemble_sentence(words)
     try:
-        if os.environ.get("JUDGE_FAKE"):  # offline dev mode: no GPU, no network
-            # Favour the first still-needed target so a collect-them-all run
-            # is playable without a token.
-            fake = {label: -6.0 - i for i, label in enumerate(labels)}
-            fake[remaining[0] if remaining else labels[0]] = -0.3
-            probs = renormalize(fake)
-        else:
-            # Condition on the full target set so the prompt is stable across a session;
-            # the win check below, not the prompt, is what tracks remaining targets.
-            probs = renormalize(score_labels(sentence, labels, level.targets, level.examples))
+        # Condition on the full target set so the prompt is stable across a session;
+        # the win check below, not the prompt, is what tracks remaining targets.
+        probs = renormalize(score_labels(sentence, labels, level.targets, level.examples))
     except Exception as e:
         return {"ok": False, "error": str(e)}
     winner = max(probs, key=probs.get)
