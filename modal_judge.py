@@ -21,7 +21,23 @@ judge.py calls. See README "Run on Modal".
 import modal
 
 MODEL_ID = "openbmb/MiniCPM3-4B"  # ≤4B open weights (Tiny Titan); non-reasoning instruct
-CACHE = "/cache"  # HF download cache, persisted in a Volume so cold starts skip re-download
+# Pin the exact commit: with trust_remote_code the custom modeling code is fetched per
+# revision, so an unpinned (moving `main`) ref lets it change under us and re-download at
+# load time. Pinning also makes the image-baked weights reproducible.
+MODEL_REVISION = "d6b14ddaefdb11c624dd75c3c779549bc90b08cb"
+CACHE = "/cache"  # HF cache path — baked into the image (see download_model), not a Volume
+
+
+def download_model():
+    # Runs once at image-build time. Pulls the weights + custom code into the image's HF
+    # cache so they live on the *immutable* image layer. Memory snapshots mmap the weights
+    # from wherever they were loaded; an image path can't drift or be deleted, so restores
+    # can't break — unlike a mutable Volume (Modal: "Deleting files in a Volume used during
+    # restore will cause restore failures").
+    from huggingface_hub import snapshot_download
+
+    snapshot_download(MODEL_ID, revision=MODEL_REVISION)
+
 
 # MiniCPM3-4B ships custom modeling (trust_remote_code) validated on transformers 4.49.0.
 image = (
@@ -32,12 +48,16 @@ image = (
         "accelerate==1.1.1",
         "sentencepiece==0.2.0",
         "fastapi[standard]==0.115.5",
+        "hf_transfer==0.1.8",  # faster weight pull during the build
     )
-    .env({"HF_HOME": CACHE})
+    .env({"HF_HOME": CACHE, "HF_HUB_ENABLE_HF_TRANSFER": "1"})
+    .run_function(download_model)  # bake weights into the image; no runtime download
+    # Never phone HF at runtime: load straight from the baked cache. This also kills the
+    # trust_remote_code re-fetch that was mutating the cache mid-snapshot.
+    .env({"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"})
 )
 
 app = modal.App("semantique-judge", image=image)
-cache_vol = modal.Volume.from_name("semantique-hf-cache", create_if_missing=True)
 
 # Import heavy libs in the container's global scope so they're captured by the snapshot.
 with image.imports():
@@ -47,18 +67,24 @@ with image.imports():
 
 @app.cls(
     gpu="l4",  # 24 GB; MiniCPM3-4B in bf16 is ~8 GB — comfortable headroom.
-    volumes={CACHE: cache_vol},
     enable_memory_snapshot=True,  # snapshot the CPU-loaded model to cut cold starts
     scaledown_window=120,  # idle 2 min, then scale to zero (no cost while nobody plays)
     min_containers=0,
 )
+# Let one warm L4 absorb a small burst of verdicts (sharing its single resident model)
+# before Modal scales out a fresh container — far cheaper than a cold start per overlap,
+# and this game's traffic is bursty and turn-based, never GPU-saturating.
+@modal.concurrent(max_inputs=4)
 class Judge:
     @modal.enter(snap=True)
     def load(self):
         # Runs once before snapshotting: load weights to CPU so they land in the snapshot.
-        self.tok = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+        # Offline + pinned revision → reads the image-baked cache (no network, no re-download).
+        self.tok = AutoTokenizer.from_pretrained(
+            MODEL_ID, revision=MODEL_REVISION, trust_remote_code=True
+        )
         self.model = AutoModelForCausalLM.from_pretrained(
-            MODEL_ID, torch_dtype=torch.bfloat16, trust_remote_code=True
+            MODEL_ID, revision=MODEL_REVISION, torch_dtype=torch.bfloat16, trust_remote_code=True
         )
         self.model.eval()
         self.pad_id = self.tok.pad_token_id or self.tok.eos_token_id or 0
