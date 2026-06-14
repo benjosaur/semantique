@@ -46,13 +46,11 @@ def test_live_judge_on_board_sentences(sentence, target, should_win):
     from judge import score_labels
     from levels import get_level
 
-    # Mirror the in-game judge() call: every label is passed as a target (so the
-    # system prompt hints no single answer) and the board's own few-shot examples
-    # calibrate the read. This measures the discrimination players actually get,
-    # which is what makes labels like "betrayed"/"surprised" reachable at all.
+    # Mirror the in-game judge() call: every label is passed as a target, so the
+    # system prompt names them all and asks for the one closest to the sentence.
+    # This measures the discrimination players actually get, which is what makes
+    # labels like "betrayed"/"surprised" reachable at all.
     level = get_level("emotion")
-    probs = renormalize(
-        score_labels(sentence, level.labels, targets=level.labels, examples=level.examples)
-    )
+    probs = renormalize(score_labels(sentence, level.labels, targets=level.labels))
     winner = max(probs, key=probs.get)
     assert (winner == target) == should_win, f"{sentence!r} -> {probs}"
