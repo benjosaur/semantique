@@ -85,8 +85,8 @@
   const INK_SOFT = "#5a564c";
   const ACCENT = "#b3402e";
 
-  // A grid cell appends its word unless it's structural (start / blank / ⏎ / wings).
-  const appendsWord = (w) => w && w !== "start" && w !== "⏎" && w !== "wings";
+  // A grid cell appends its word unless it's structural (start / blank / ⏎ / wings / portal).
+  const appendsWord = (w) => w && w !== "start" && w !== "⏎" && w !== "wings" && w !== "portal";
 
   // ---- HUD ----
   // The targets checklist: every label to collect. Checks persist per board
@@ -265,16 +265,17 @@
   }
 
   function drawTileCanvas(ctx, word) {
-    const special = word === "start" || word === "⏎" || word === "wings";
-    // only the submit tile keeps a dashed rim as a "press me" cue; the start
-    // and wings tiles read as normal solid keycaps.
+    const special = word === "start" || word === "⏎" || word === "wings" || word === "portal";
+    // only the submit tile keeps a dashed rim as a "press me" cue; the start,
+    // wings and portal tiles read as normal solid keycaps.
     drawKeycapBase(ctx, special, word === "⏎");
 
     // the wings tile is wordless — its icon IS the cue.
     if (word === "wings") return drawWingsKeyIcon(ctx);
 
-    // the word — start and empty tiles are blank squares, so they stay wordless
-    const blank = !word || word === "start";
+    // the word — start/empty/portal tiles are blank squares (the portal's spiral
+    // is a separate spinning mesh), so they stay wordless
+    const blank = !word || word === "start" || word === "portal";
     if (!blank) {
       ctx.fillStyle = special ? INK_SOFT : INK;
       let size = word.length > 6 ? 64 : 76;
@@ -336,6 +337,38 @@
     ctx.lineWidth = 7;
     wobblyLine(ctx, -6, SIDE_PX_H - 7, SIDE_PX_W + 6, SIDE_PX_H - 7, 2.5);
     ctx.stroke();
+  }
+
+  // The portal spiral: a hand-drawn Archimedean coil on a transparent square,
+  // baked once and worn by every portal keycap (a disc that spins it in place —
+  // see the animation loop). Drawn ink-on-paper to match the keycaps: an accent
+  // under-stroke, a double ink pass for the "traced twice" feel, and a filled
+  // dot at the eye so the swirl reads as a hole to drop into.
+  const SPIRAL_PX = 256;
+  function drawSpiralCanvas(ctx) {
+    ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
+    ctx.clearRect(0, 0, SPIRAL_PX, SPIRAL_PX);
+    ctx.lineJoin = ctx.lineCap = "round";
+    const cx = SPIRAL_PX / 2, cy = SPIRAL_PX / 2;
+    const path = (jit) => {
+      const turns = 3.0, maxR = SPIRAL_PX * 0.4, steps = 200;
+      ctx.beginPath();
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const a = t * Math.PI * 2 * turns;
+        const r = 7 + t * maxR;
+        const x = cx + r * Math.cos(a) + rand(-jit, jit);
+        const y = cy + r * Math.sin(a) + rand(-jit, jit);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+    };
+    ctx.globalAlpha = 0.5; // accent under-spiral, slightly fatter
+    ctx.strokeStyle = ACCENT; ctx.lineWidth = 11; path(2); ctx.stroke();
+    ctx.globalAlpha = 1; // ink spiral, traced twice
+    ctx.strokeStyle = INK; ctx.lineWidth = 6; path(2.4); ctx.stroke();
+    ctx.strokeStyle = "rgba(28,27,24,0.4)"; ctx.lineWidth = 3; path(1.4); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, 7, 0, Math.PI * 2); // the eye of the portal
+    ctx.fillStyle = INK; ctx.fill();
   }
 
   // ---- three.js paper scene ----
@@ -427,7 +460,26 @@
   sideTexture.colorSpace = THREE.SRGBColorSpace;
   const sideMaterial = new THREE.MeshBasicMaterial({ map: sideTexture });
 
-  let tiles = []; // { mesh, ctx, texture, word, row, col }
+  // One shared spiral disc, reused by every portal keycap. A flat plane wearing
+  // the baked spiral texture, lying face-up just above the cap top; each portal
+  // gets its own Mesh (so it can spin independently) but they share this
+  // geometry/texture/material — the spin lives on the mesh, not the texture.
+  const SPIRAL_LIFT = 0.02; // height above the keycap top, so it never z-fights
+  const spiralCanvas = document.createElement("canvas");
+  spiralCanvas.width = spiralCanvas.height = SPIRAL_PX * TEX_SCALE;
+  drawSpiralCanvas(spiralCanvas.getContext("2d"));
+  const spiralTexture = new THREE.CanvasTexture(spiralCanvas);
+  spiralTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  spiralTexture.colorSpace = THREE.SRGBColorSpace;
+  const spiralMaterial = new THREE.MeshBasicMaterial({
+    map: spiralTexture, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+  });
+  const spiralGeometry = new THREE.PlaneGeometry(TILE_SIZE * 0.9, TILE_SIZE * 0.9);
+  spiralGeometry.rotateX(-Math.PI / 2); // lie flat, facing +y like the keycap top
+
+  let tiles = []; // { mesh, ctx, texture, word, row, col, spinner }
+  let portalSpinners = []; // the spinning spiral discs, spun by the render loop
+  let portalDest = {}; // "r,c" -> [row,col] of the next portal clockwise
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
   // (Re)build the keycaps for the active board, disposing the previous set.
@@ -438,6 +490,7 @@
       t.mesh.material[0].dispose(); // per-tile cap material (side is shared)
     }
     tiles = [];
+    portalSpinners = []; // children of their tile meshes — disposed with them
     ROWS = level.grid.length;
     COLS = level.grid[0].length;
     for (let r = 0; r < ROWS; r++) {
@@ -460,11 +513,41 @@
         const { x, z } = tileAt(r, c);
         mesh.position.set(x, -TILE_DEPTH / 2, z); // top face flush with y=0
         board.add(mesh);
-        tiles.push({ mesh, ctx, texture, word, row: r, col: c });
+
+        // a portal wears a spinning spiral disc just above its keycap top. It's
+        // a child of the keycap, so it drops/presses/disposes with the tile.
+        let spinner = null;
+        if (word === "portal") {
+          spinner = new THREE.Mesh(spiralGeometry, spiralMaterial);
+          spinner.position.y = TILE_DEPTH / 2 + SPIRAL_LIFT; // above the top face (mesh-local)
+          mesh.add(spinner);
+          portalSpinners.push(spinner);
+        }
+        tiles.push({ mesh, ctx, texture, word, row: r, col: c, spinner });
       }
     }
+    buildPortalLinks();
   }
   const tile = (r, c) => tiles[r * COLS + c];
+
+  // Wire each portal to the next one clockwise around the board centre. Angle is
+  // measured in screen space (x = col, y = up = -row); clockwise is decreasing
+  // angle, so portals sorted by descending angle each point at the one after.
+  function buildPortalLinks() {
+    portalDest = {};
+    const cells = [];
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++)
+        if (level.grid[r][c] === "portal") cells.push([r, c]);
+    if (cells.length < 2) return; // a lone portal links nowhere
+    const cr = (ROWS - 1) / 2, cc = (COLS - 1) / 2;
+    const ang = ([r, c]) => Math.atan2(cr - r, c - cc);
+    cells.sort((a, b) => ang(b) - ang(a)); // descending angle = clockwise
+    for (let i = 0; i < cells.length; i++) {
+      const [fr, fc] = cells[i];
+      portalDest[fr + "," + fc] = cells[(i + 1) % cells.length];
+    }
+  }
 
   // ---- board-swap tiles ----
   // Lone keycaps just off the grid edge: hop onto one and it loads another
@@ -1045,6 +1128,11 @@
     flap() {
       thud({ dur: 0.07, vol: 0.1, freq: 280 }); // soft wing-beat whoosh
     },
+    warp() {
+      // pulled in (upward swirl), then spat back out (downward whoosh)
+      tone({ type: "sine", from: 240, to: 920, dur: 0.18, vol: 0.16 });
+      tone({ type: "triangle", from: 720, to: 170, dur: 0.3, vol: 0.16, at: 0.17 });
+    },
     scratch(dur = 0.4) {
       if (!audio() || !scratchBuf) return; // sample still decoding → skip silently
       const src = ac.createBufferSource();
@@ -1504,6 +1592,13 @@
     }
 
     if (word === "⏎") return submit();
+    if (word === "portal") return portalWarp(r, c); // teleport, then settle
+    settleIdle();
+  }
+
+  // Tail of a normal landing: warn on the last hop, go idle, and drain a
+  // buffered move. Shared by land() and the portal warp's arrival.
+  function settleIdle() {
     if (used === level.budget) {
       hud.warnFull();
       hintEl.textContent = "last hop! one more and you're out…";
@@ -1511,6 +1606,42 @@
     }
     state = "idle";
     pumpBuffered();
+  }
+
+  // Hop onto a portal and the doodle is whisked to the next portal clockwise:
+  // it shrinks and screws down INTO the source spiral, vanishes, then expands
+  // and unwinds back OUT of the destination one. The teleport adds no word and
+  // (the landing hop is already spent) no extra budget.
+  function portalWarp(r, c) {
+    const dest = portalDest[r + "," + c];
+    if (!dest) return settleIdle(); // a lone portal links nowhere — just stand
+    const [dr, dc] = dest;
+    const d = charPosFor(dr, dc);
+    const into = tile(r, c).spinner;
+    const outOf = tile(dr, dc).spinner;
+    state = "hopping"; // block input through the warp (one move may buffer)
+    sfx.warp();
+    setPose("hop-mid");
+    if (into) // the source spiral flares as it swallows him
+      gsap.fromTo(into.scale, { x: 1, z: 1 },
+        { x: 1.3, z: 1.3, duration: 0.3, ease: "power2.in", yoyo: true, repeat: 1 });
+    gsap.timeline({ onComplete: () => { pos = [dr, dc]; setPose("idle"); settleIdle(); } })
+      // screw down into the source spiral and shrink away
+      .to(charMesh.scale, { x: 0, y: 0, duration: 0.32, ease: "power2.in" }, 0)
+      .to(charTilt, { z: Math.PI * 2.5, duration: 0.32, ease: "power2.in" }, 0)
+      .to(charMesh.position, { y: -0.14, duration: 0.32, ease: "power2.in" }, 0)
+      // reappear at the destination, wound up the other way
+      .add(() => {
+        charGroup.position.set(d.x, CHAR_STANDOFF, d.z);
+        charMesh.position.y = 0;
+        charTilt.z = -Math.PI * 2.5;
+        if (outOf) // the destination spiral spits him back out
+          gsap.fromTo(outOf.scale, { x: 1.35, z: 1.35 },
+            { x: 1, z: 1, duration: 0.45, ease: "power2.out" });
+      })
+      // expand and unwind back out of the destination spiral
+      .to(charMesh.scale, { x: 1, y: 1, duration: 0.42, ease: "back.out(1.7)" })
+      .to(charTilt, { z: 0, duration: 0.46, ease: "power3.out" }, "<");
   }
 
   // Overflow death: a dizzy wobble, then the doodle crumples and slides
@@ -1882,12 +2013,16 @@
   const _bbSpin = new THREE.Quaternion();
   const _Z = new THREE.Vector3(0, 0, 1);
 
-  renderer.setAnimationLoop(() => {
+  renderer.setAnimationLoop((time) => {
     // billboard the doodle, then lean it by charTilt.z (bonks, deaths…)
     charMesh.quaternion
       .copy(_bbParentInv)
       .multiply(camera.quaternion)
       .multiply(_bbSpin.setFromAxisAngle(_Z, charTilt.z));
+    // every portal spiral turns lazily in place — the swirl is this spin, not a
+    // texture redraw, so it costs nothing on the main thread.
+    const spin = (time || 0) * 0.0016; // ~one turn every 4s
+    for (const s of portalSpinners) s.rotation.y = spin;
     renderer.render(scene, camera);
   });
 
