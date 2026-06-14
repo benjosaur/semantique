@@ -29,12 +29,10 @@ def test_renormalize_handles_large_negative_logprobs():
 # --- Live eval (slow, needs the Modal judge endpoint) -----------------------
 
 BOARD_SENTENCES = [
-    ("great!", "happy", True),
-    ("very great!", "happy", True),
     ("not sad", "happy", True),
     ("hurt", "betrayed", True),
     ("yikes", "surprised", True),
-    ("great!", "betrayed", False),
+    ("not sad", "betrayed", False),
     ("yikes", "happy", False),
 ]
 

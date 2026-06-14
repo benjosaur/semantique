@@ -123,7 +123,7 @@ def emotion_walk(path):
 
 
 def test_emotion_quick_win_path():
-    assert assemble_sentence(emotion_walk(["great", "!", "⏎"])) == "great!"
+    assert assemble_sentence(emotion_walk(["great", "sad", "⏎"])) == "great sad"
 
 
 def test_emotion_clever_win_path():
@@ -131,7 +131,7 @@ def test_emotion_clever_win_path():
 
 
 def test_emotion_start_revisit_win_path():
-    assert assemble_sentence(emotion_walk(["very", "start", "great", "!", "⏎"])) == "very great!"
+    assert assemble_sentence(emotion_walk(["very", "start", "great", "sad", "⏎"])) == "very great sad"
 
 
 # ---- animal board: empty tiles are walkable but wordless -------------------
