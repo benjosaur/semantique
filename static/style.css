@@ -379,6 +379,94 @@
   color: var(--paper);
 }
 
+/* ---- welcome modal ---- */
+/* Same paper-and-ink card as the verdict overlay, shown once on game open. */
+
+.sq-welcome {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(250, 248, 242, 0.82);
+  z-index: 4; /* above the verdict overlay (3), though they never coexist */
+}
+
+.sq-welcome-card {
+  position: relative;
+  width: min(440px, 86vw);
+  padding: 30px 34px 30px;
+  background: #fffdf7;
+  border: 3px solid var(--ink);
+  border-radius: 235px 25px 245px 20px / 25px 235px 20px 245px;
+  box-shadow: 4px 5px 0 rgba(28, 27, 24, 0.12);
+  transform: rotate(-1deg);
+  text-align: center;
+}
+
+.sq-welcome-title {
+  font-family: "Caveat", cursive;
+  font-size: 40px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+/* "targets" boxed like the real HUD target chips (.sq-target-item) */
+.sq-welcome-target {
+  display: inline-block;
+  padding: 0 10px 2px;
+  border: 2.5px solid var(--ink);
+  border-radius: 255px 25px 225px 25px / 25px 225px 25px 255px;
+  transform: rotate(-1.5deg);
+}
+.sq-welcome-body {
+  font-family: "Patrick Hand", cursive;
+  font-size: 21px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  margin-bottom: 24px;
+}
+/* the ⏎ glyph inline, as a tiny dashed keycap echoing the close button below */
+.sq-welcome-key {
+  display: inline-block;
+  padding: 0 0.28em;
+  font-size: 1.05em;
+  line-height: 1;
+  color: var(--ink-soft);
+  border: 2px dashed var(--ink-soft);
+  border-radius: 9px 4px 10px 4px / 4px 10px 4px 9px;
+  transform: rotate(-2deg);
+}
+
+/* the close button: a small carriage-return keycap drawn like the submit tile —
+   soft ink, a dashed "press me" rim, and the ⏎ glyph centred. */
+.sq-welcome-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 66px;
+  height: 66px;
+  padding: 0 0 4px;
+  font-family: "Patrick Hand", cursive;
+  font-size: 42px;
+  line-height: 1;
+  color: var(--ink-soft);
+  background: #faf8f2;
+  border: 3px dashed var(--ink-soft);
+  border-radius: 18px 7px 20px 7px / 7px 20px 7px 18px;
+  box-shadow: 3px 4px 0 rgba(28, 27, 24, 0.12);
+  cursor: pointer;
+  transform: rotate(-1.5deg);
+}
+.sq-welcome-close:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+.sq-welcome-close:active {
+  transform: rotate(-1.5deg) translate(3px, 4px); /* press the keycap down */
+  box-shadow: 0 0 0 rgba(28, 27, 24, 0.12);
+}
+
 .sq-hidden { display: none !important; }
 
 /* ---- compact / mobile ---- */
@@ -413,4 +501,9 @@
   .sq-card-sentence { font-size: 27px; }
   .sq-bar-row { grid-template-columns: 60px 1fr 44px; font-size: 17px; }
   .sq-stamp { font-size: 32px; top: -16px; right: -4px; } /* keep the sticker on-screen */
+
+  .sq-welcome-card { width: min(400px, 88vw); padding: 24px 22px 26px; }
+  .sq-welcome-title { font-size: 32px; }
+  .sq-welcome-body { font-size: 18px; margin-bottom: 20px; }
+  .sq-welcome-close { width: 56px; height: 56px; font-size: 34px; }
 }

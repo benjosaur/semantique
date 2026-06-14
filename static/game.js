@@ -1978,6 +1978,48 @@
   againBtn.addEventListener("click", () => sfx.click());
   retryBtn.addEventListener("click", () => sfx.click());
 
+  // ---- welcome modal ----
+  // A one-time intro card, shown over the board as it drops in on game open.
+  // The ⏎ keycap (or Enter/Escape, or a backdrop tap) dismisses it; gameplay
+  // input is held off while it's up (see the guard in handleDir).
+  const welcomeEl = element.querySelector(".sq-welcome");
+  const welcomeCloseBtn = element.querySelector(".sq-welcome-close");
+  let welcomeOpen = false;
+
+  function openWelcome() {
+    welcomeOpen = true;
+    welcomeEl.classList.remove("sq-hidden");
+    gsap.fromTo(welcomeEl, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.3 });
+    gsap.fromTo(
+      welcomeEl.querySelector(".sq-welcome-card"),
+      { y: 30, rotation: -4, scale: 0.94, autoAlpha: 0 },
+      { y: 0, rotation: -1, scale: 1, autoAlpha: 1, duration: 0.45, ease: "back.out(1.5)" }
+    );
+  }
+
+  function closeWelcome() {
+    if (!welcomeOpen) return;
+    welcomeOpen = false;
+    sfx.click();
+    gsap.to(welcomeEl, {
+      autoAlpha: 0, duration: 0.25,
+      onComplete: () => {
+        welcomeEl.classList.add("sq-hidden");
+        welcomeEl.style.opacity = "";
+      },
+    });
+  }
+
+  welcomeCloseBtn.addEventListener("click", closeWelcome);
+  // dismiss on a backdrop tap (but not a click inside the card)
+  welcomeEl.addEventListener("click", (e) => { if (e.target === welcomeEl) closeWelcome(); });
+  document.addEventListener("keydown", (e) => {
+    if (welcomeOpen && (e.key === "Enter" || e.key === "Escape")) {
+      e.preventDefault();
+      closeWelcome();
+    }
+  });
+
   // ---- input ----
 
   const DIRS = {
@@ -1998,6 +2040,7 @@
 
   // Shared by keyboard and swipe: hop now, or buffer one move mid-hop.
   function handleDir(dir) {
+    if (welcomeOpen) return; // the intro card swallows hops until dismissed
     if (state === "hopping" && !buffered) {
       buffered = dir;
       return;
@@ -2119,4 +2162,5 @@
 
   loadLevel(data.home);
   root.dataset.state = "ready";
+  openWelcome(); // greet the player over the dropping-in board
 })();
