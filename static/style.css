@@ -81,9 +81,10 @@
   display: inline-flex;
   flex-wrap: wrap;
   align-items: baseline;
+  justify-content: center;
   gap: 6px 8px;
   margin-left: 6px;
-  font-size: 20px;
+  font-size: 32px;
 }
 .sq-target-item {
   position: relative;
@@ -370,7 +371,7 @@
   .sq-hud { padding-left: 10px; padding-right: 10px; }
   .sq-title { display: none; }
   .sq-targets { font-size: 14px; flex-shrink: 0; white-space: nowrap; }
-  .sq-target-list { gap: 4px; margin-left: 3px; flex-wrap: nowrap; }
+  .sq-target-list { gap: 4px; margin-left: 3px; flex-wrap: nowrap; font-size: 20px; }
   .sq-target-item { padding: 0 5px 1px; }
   .sq-context { gap: 4px; flex-shrink: 0; }
   .sq-context-count { font-size: 17px; min-width: 30px; }
