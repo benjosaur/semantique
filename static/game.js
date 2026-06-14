@@ -1626,9 +1626,14 @@
     // top chrome (HUD + sentence) and bottom hint would clip the board. Zoom out
     // a touch more and aim higher, dropping the board into the clear middle band.
     const short = h <= 540;
-    // fov stays 32°; dolly the camera so the board fits either way
+    // fov stays 32°; dolly the camera so the board fits either way.
+    // Portrait phones: trim the side margin so the board fills the narrow width
+    // instead of floating small in the middle (landscape keeps the wider margin
+    // and the zoom-out floor below, so its short height doesn't clip the board).
+    const narrow = w <= 560 && !short;
+    const hMargin = narrow ? 1.7 : 0.2;
     // board-sized base, narrow-window fit, plus the landscape-phone zoom-out floor
-    const need = Math.max(viewUnits, (viewUnits - 0.2) / aspect, short ? 9.4 : 0);
+    const need = Math.max(viewUnits, (viewUnits - hMargin) / aspect, short ? 9.4 : 0);
     camera.position.z = need / 2 / Math.tan(THREE.MathUtils.degToRad(32 / 2));
     camera.aspect = aspect;
     camera.lookAt(0, short ? 0.55 : 0.25, 0);
