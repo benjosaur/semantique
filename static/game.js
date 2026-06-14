@@ -1992,7 +1992,10 @@
     const need = Math.max(viewUnits, (viewUnits - hMargin) / aspect, short ? 9.4 : 0);
     camera.position.z = need / 2 / Math.tan(THREE.MathUtils.degToRad(32 / 2));
     camera.aspect = aspect;
-    camera.lookAt(0, short ? 0.55 : 0.25, 0);
+    // The stage now starts below the HUD + sentence, so the board centres in its
+    // own band: barely bias it down on wide/tall windows. Landscape phones still
+    // aim high to clear chrome top-and-bottom; portrait phones keep their nudge.
+    camera.lookAt(0, short ? 0.55 : narrow ? 0.25 : 0.06, 0);
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
   }
