@@ -15,14 +15,14 @@ LEVEL = Level(
     title="critters",
     grid=[
         ["⏎", "portal", "ouch", "cylinder", "⏎"],
-        ["flying", "fur", "loud", "puppy", "?"],
+        ["smart", "fur", "loud", "puppy", "?"],
         ["love", "not", "start", "sea", "portal"],
         ["small", "hate", "winged", "quiet", "big"],
         ["⏎", "portal", "frolick", "grass", "⏎"],
     ],
     start=(2, 2),  # the centre tile
-    targets=["whale", "dolphin", "otter", "cat", "dog", "bear", "owl", "mouse", "lion", "cow"],
-    labels=["whale", "dolphin", "otter", "cat", "dog", "bear", "owl", "mouse", "lion", "cow"],
+    targets=["whale", "dolphin", "otter", "cat", "dog", "bear", "owl", "mouse", "cow"],
+    labels=["whale", "dolphin", "otter", "cat", "dog", "bear", "owl", "mouse", "cow"],
     budget=12,
     order=1,
 )
