@@ -20,11 +20,6 @@ LEVEL = Level(
     start=(1, 1),  # row, col of the start tile
     targets=["happy", "betrayed", "surprised"],  # collect them all
     labels=["happy", "betrayed", "surprised"],
-    examples=(  # few-shot calibration for the judge (board words, all three labels)
-        ("great!", "happy"),
-        ("hurt", "betrayed"),
-        ("yikes", "surprised"),
-    ),
     budget=10,
     order=0,
     home=True,

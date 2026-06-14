@@ -1,9 +1,8 @@
 """The judge: structured output via exact logprob filtering over a self-hosted LLM.
 
-A system message lists the level's still-needed targets, optionally followed by a
-few (sentence, label) examples as few-shot turns; the final user message is the
-assembled sentence followed by " is the same as". The model (on a Modal GPU — see
-modal_judge.py) scores each candidate label's whole token sequence in one forward
+A system message names the level's targets and asks for the one most similar to the
+player's message; the user message is the assembled sentence. The model (on a Modal
+GPU — see modal_judge.py) scores each candidate label's whole token sequence in one forward
 pass; we get the *exact* probability of each label, not just whatever lands in a
 hosted API's top-k. Those per-label logprobs are masked to the level's candidate
 labels and renormalized with a softmax — constrained decoding, enforced
@@ -43,20 +42,17 @@ def assemble_sentence(words: list[str]) -> str:
     return out
 
 
-def build_messages(
-    sentence: str,
-    targets: list[str],
-    examples: tuple[tuple[str, str], ...] = (),
-) -> list[dict]:
-    """The judge prompt: a system message listing `targets`, then each (sentence,
-    label) in `examples` as a few-shot turn in the "<sentence> is the same as" ->
-    "<label>" shape, then the final "<sentence> is the same as"."""
-    messages = [{"role": "system", "content": f"The targets are: {', '.join(targets)}."}]
-    for ex_sentence, ex_label in examples:
-        messages.append({"role": "user", "content": f"{ex_sentence} is the same as"})
-        messages.append({"role": "assistant", "content": ex_label})
-    messages.append({"role": "user", "content": f"{sentence} is the same as"})
-    return messages
+def build_messages(sentence: str, targets: list[str]) -> list[dict]:
+    """The judge prompt: a system message naming `targets` and asking for the one
+    closest to the player's message, then the assembled sentence as the user turn."""
+    return [
+        {
+            "role": "system",
+            "content": f"The targets are: {', '.join(targets)}. "
+            "Output the one most similar to the user's message.",
+        },
+        {"role": "user", "content": sentence},
+    ]
 
 
 def renormalize(label_logprobs: dict[str, float]) -> dict[str, float]:
@@ -71,12 +67,11 @@ def score_labels(
     sentence: str,
     labels: list[str],
     targets: list[str],
-    examples: tuple[tuple[str, str], ...] = (),
 ) -> dict[str, float]:
     """One call to the Modal GPU endpoint -> exact per-label logprobs.
 
-    The prompt (built from `targets`/`examples`) is sent as chat messages; the
-    candidate `labels` are what the endpoint scores and constrains the answer to.
+    The prompt (built from `targets`) is sent as chat messages; the candidate
+    `labels` are what the endpoint scores and constrains the answer to.
     """
     if not MODAL_JUDGE_URL:
         raise RuntimeError("MODAL_JUDGE_URL is not set (deploy modal_judge.py — see README)")
@@ -85,7 +80,7 @@ def score_labels(
         headers = {"Modal-Key": MODAL_KEY, "Modal-Secret": MODAL_SECRET}
     resp = requests.post(
         MODAL_JUDGE_URL,
-        json={"messages": build_messages(sentence, targets, examples), "labels": labels},
+        json={"messages": build_messages(sentence, targets), "labels": labels},
         headers=headers,
         timeout=REQUEST_TIMEOUT,
     )
@@ -117,7 +112,7 @@ def judge(payload: dict) -> dict:
     try:
         # Condition on the full target set so the prompt is stable across a session;
         # the win check below, not the prompt, is what tracks remaining targets.
-        probs = renormalize(score_labels(sentence, labels, level.targets, level.examples))
+        probs = renormalize(score_labels(sentence, labels, level.targets))
     except Exception as e:
         return {"ok": False, "error": str(e)}
     winner = max(probs, key=probs.get)
