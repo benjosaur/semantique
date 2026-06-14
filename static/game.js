@@ -937,69 +937,45 @@
     },
   };
 
-  // ---- background music: a gentle generative pentatonic doodle ----
-  // Same "no samples" spirit as the sfx — a soft melody noodles around a
-  // C-major pentatonic (so nothing ever clashes) over a quiet I–vi–IV–V bass.
-  // A lookahead scheduler clocks notes off ac.currentTime so it never drifts.
+  // ---- background music: a looping track on the music bus ----
+  // A single recorded loop (Cipher2) plays under the game via an <audio>
+  // element wired into musicGain, so the mixer's music slider levels and mutes
+  // it exactly like before — the bus, prefs, and gesture-unlock are unchanged.
+  let musicEl = null; // the <audio> element, created on first play
+  let musicSrc = null; // its MediaElementAudioSourceNode (only creatable once)
+  let musicPlay = Promise.resolve(); // the last play() promise, so a quick mute
+  // can wait it out instead of interrupting it (see stopMusic)
 
-  // C-major pentatonic, C4 up to G5 — the melody random-walks this ladder.
-  const PENTA = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99];
-  const BASS = [130.81, 110.0, 87.31, 98.0]; // one root per bar: C, A, F, G
-  const MUSIC_BPM = 84;
-  const STEP_DUR = 60 / MUSIC_BPM / 2; // eighth-note grid
-  const STEPS = 16; // loop length — 4 bars of 4 eighths
-
-  // one warm, gently-enveloped voice through a lowpass: no clicks, no glare
-  function musicNote(freq, at, dur, vol, type) {
-    if (!musicGain) return;
-    const osc = ac.createOscillator();
-    const g = ac.createGain();
-    const lp = ac.createBiquadFilter();
-    lp.type = "lowpass";
-    lp.frequency.value = 2000;
-    osc.type = type || "triangle";
-    osc.frequency.value = freq;
-    g.gain.setValueAtTime(0, at);
-    g.gain.linearRampToValueAtTime(vol, at + 0.03);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-    osc.connect(lp).connect(g).connect(musicGain);
-    osc.start(at);
-    osc.stop(at + dur + 0.05);
-  }
-
-  let musicTimer = null;
-  let musicStep = 0;
-  let musicNextTime = 0;
-  let melodyIdx = 4; // start mid-ladder (A4)
-
-  // Schedule everything that falls inside the ~120ms lookahead, then advance.
-  function scheduleMusic() {
-    if (!ac) return;
-    while (musicNextTime < ac.currentTime + 0.12) {
-      const bar = Math.floor(musicStep / 4) % BASS.length;
-      if (musicStep % 4 === 0) musicNote(BASS[bar], musicNextTime, 0.9, 0.32, "sine"); // bass on the downbeat
-      // melody: a smooth random walk with rests for a relaxed, sketchy feel
-      if (Math.random() < 0.62) {
-        const stride = (Math.floor(Math.random() * 3) - 1) * (Math.random() < 0.3 ? 2 : 1);
-        melodyIdx = Math.max(0, Math.min(PENTA.length - 1, melodyIdx + stride));
-        const long = Math.random() < 0.25;
-        musicNote(PENTA[melodyIdx], musicNextTime, STEP_DUR * (long ? 1.8 : 0.9), 0.17);
-      }
-      if (Math.random() < 0.05) musicNote(PENTA[PENTA.length - 1] * 2, musicNextTime, 0.3, 0.07); // rare high sparkle
-      musicNextTime += STEP_DUR;
-      musicStep = (musicStep + 1) % STEPS;
-    }
+  // data.music is a "gradio_api/file=…" path. An <audio> already resolves it
+  // against the document, but inside the HF iframe the file route lives under
+  // the Gradio root — so prefer that root when the config exposes it, and fall
+  // back to document-relative (correct on localhost and direct embeds).
+  function musicUrl() {
+    const root = (window.gradio_config && window.gradio_config.root) || "";
+    const base = root.replace(/\/+$/, "");
+    return base ? base + "/" + data.music : data.music;
   }
 
   function startMusic() {
-    if (musicTimer || !audio()) return;
-    musicNextTime = ac.currentTime + 0.1;
-    musicStep = 0;
-    musicTimer = setInterval(scheduleMusic, 25);
+    if (!audio()) return;
+    if (!musicEl) {
+      musicEl = new Audio(musicUrl());
+      musicEl.loop = true;
+      musicEl.preload = "auto";
+      musicSrc = ac.createMediaElementSource(musicEl);
+      musicSrc.connect(musicGain);
+    }
+    // play() is gesture-gated; unlockAudio drives the first call from a real tap
+    musicPlay = musicEl.play() || Promise.resolve();
+    musicPlay.catch(() => {});
   }
   function stopMusic() {
-    if (musicTimer) clearInterval(musicTimer);
-    musicTimer = null;
+    if (!musicEl) return;
+    // Pausing while a play() is still pending throws AbortError and can wedge
+    // the element (a fast mute→unmute mid-load would then stay silent). So wait
+    // for the play to settle, then pause only if we still mean to be off —
+    // musicGain is already at 0, so nothing is audible in the meantime anyway.
+    musicPlay.then(() => { if (musicVol === 0 && musicEl) musicEl.pause(); }).catch(() => {});
   }
 
   // ---- audio toggles: hand-drawn ♫ + speaker doodles in the top-right ----

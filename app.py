@@ -13,13 +13,21 @@ STATIC = pathlib.Path(__file__).parent / "static"
 # a Web Audio buffer; see sfx.scratch in game.js.
 _SCRATCH = base64.b64encode((STATIC / "pencil-scratch.mp3").read_bytes()).decode()
 
-# Everything the board needs to render and switch levels client-side: the
-# play order, the boot board, and each level's client-facing slice.
+# The background-music track is far too big to inline like the scratch above
+# (a multi-MB loop would bloat every page load), so it streams from the static
+# dir via the file route instead. game.js resolves the URL against the Gradio
+# root so it still holds up inside the HF Spaces iframe.
+gr.set_static_paths(paths=[STATIC])
+
+# Everything the board needs to render and switch levels client-side: the play
+# order, the boot board, each level's client-facing slice, the pen-scratch
+# sample (data URI), and the looping background-music URL (file route).
 GAME = {
     "levels": [LEVELS[lid].client_value() for lid in LEVEL_ORDER],
     "order": LEVEL_ORDER,
     "home": HOME_ID,
     "scratchAudio": "data:audio/mpeg;base64," + _SCRATCH,
+    "music": "gradio_api/file=" + str(STATIC / "Cipher2.mp3"),
 }
 
 HEAD = """
