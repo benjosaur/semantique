@@ -145,9 +145,16 @@
     },
   };
 
-  // Handwritten font must be loaded before we bake it into canvas textures.
+  // Fonts must be loaded before we bake Patrick Hand into canvas textures AND
+  // before the HUD/prompt/card lay out their Caveat text — otherwise the DOM
+  // text renders in a fallback face, then reflows when the webfont lands.
+  // document.fonts.ready alone is unreliable here: the Google Fonts stylesheet
+  // arrives async, and `ready` only waits for faces already in active use, so
+  // Caveat 600 (the verdict card) isn't covered. Request every weight we use.
   await Promise.all([
     document.fonts.load('400 80px "Patrick Hand"'),
+    document.fonts.load('700 42px "Caveat"'),
+    document.fonts.load('600 34px "Caveat"'),
     document.fonts.ready,
   ]);
 
@@ -758,23 +765,46 @@
     charTexture.needsUpdate = true;
   }
 
-  // "Sketch boil": re-jitter the ink a few times a second so it feels alive.
+  // "Sketch boil": re-jitter the ink so the board looks hand-drawn and alive.
+  // This used to redraw all ~16 hi-dpi (768px) tile canvases and re-upload their
+  // textures to the GPU in a single tick, three times a second — a ~70ms
+  // main-thread stall that dropped a frame each time and read as choppy/jagged
+  // animation (measured as 40-90ms frame spikes spaced ~340ms apart on
+  // HF/Safari). Two changes keep it lively without the hitch:
+  //   1. Only boil while idle. During a hop / judge bob / verdict the motion
+  //      already carries the life, and a stalled frame mid-motion is exactly
+  //      what reads as jank — so leave those frames for the animation.
+  //   2. Re-jitter only a slice of the board per tick, cycling through, so no
+  //      single tick redraws+uploads more than a few textures.
+  // One round-robin over every boilable surface (board tiles + the doodle + the
+  // tile sides), redrawing a small fixed slice per tick so a tick never redraws
+  // more than ~2 hi-dpi canvases — each tick stays well under a frame budget,
+  // and the cost is spread evenly instead of bursting. ~2 of ~18 surfaces every
+  // 100ms re-jitters each one roughly once a second: calm, but still alive.
+  let boilCursor = 0, boilBeat = 0;
   setInterval(() => {
-    if (document.hidden) return;
-    for (const t of tiles) {
-      drawTileCanvas(t.ctx, t.word);
-      t.texture.needsUpdate = true;
+    if (document.hidden || state !== "idle") return;
+    const surfaces = tiles.length + 2; // tiles + doodle + tile-sides
+    for (let n = 0; n < 2 && surfaces; n++, boilCursor++) {
+      const i = boilCursor % surfaces;
+      if (i < tiles.length) {
+        const t = tiles[i];
+        drawTileCanvas(t.ctx, t.word);
+        t.texture.needsUpdate = true;
+      } else if (i === tiles.length) {
+        drawCharCanvas(charCtx, charPose);
+        charTexture.needsUpdate = true;
+      } else {
+        drawTileSideCanvas(sideCtx);
+        sideTexture.needsUpdate = true;
+      }
     }
-    for (const s of swapTiles) {
+    for (const s of swapTiles) { // 0-2, only once a board is cleared — cheap
       drawSwapTileCanvas(s.ctx, s.dir, s.label);
       s.texture.needsUpdate = true;
     }
-    drawTileSideCanvas(sideCtx);
-    sideTexture.needsUpdate = true;
-    drawCharCanvas(charCtx, charPose);
-    charTexture.needsUpdate = true;
-    syncAudioUI();
-  }, 340);
+    if (boilBeat++ % 4 === 0) syncAudioUI(); // mute-slash boil, no rush
+  }, 100);
 
   // ---- sounds: a tiny Web Audio sketch-synth ----
   // Every cue is an oscillator doodle or a pinch of filtered noise — no
@@ -1146,6 +1176,11 @@
   let popOpen = false;
   function openPop() {
     popOpen = true;
+    // Kill any in-flight close so its onComplete can't re-hide us mid-reopen —
+    // a quick close→reopen otherwise leaves popOpen=true but display:none, and
+    // the next tap (on a now-invisible slider) falls through to the board and
+    // the outside-tap handler closes the mixer.
+    gsap.killTweensOf(popEl);
     popEl.classList.remove("sq-hidden");
     musicBtn.setAttribute("aria-expanded", "true");
     sfxBtn.setAttribute("aria-expanded", "true");
@@ -1161,7 +1196,11 @@
     sfxBtn.setAttribute("aria-expanded", "false");
     gsap.to(popEl, {
       autoAlpha: 0, y: -6, duration: 0.15,
-      onComplete: () => { popEl.classList.add("sq-hidden"); gsap.set(popEl, { clearProps: "opacity,transform,visibility" }); },
+      onComplete: () => {
+        if (popOpen) return; // reopened during the fade — leave it visible
+        popEl.classList.add("sq-hidden");
+        gsap.set(popEl, { clearProps: "opacity,transform,visibility" });
+      },
     });
   }
   function togglePop() { popOpen ? closePop() : openPop(); }
@@ -1172,6 +1211,13 @@
   sfxBtn.addEventListener("click", onBarTap);
   volMusicBtn.addEventListener("click", () => { toggleMute("music"); sfx.click(); });
   volSfxBtn.addEventListener("click", () => { const was = sfxVol > 0; toggleMute("sfx"); if (!was) sfx.click(); });
+
+  // Stop pointer events that start inside the mixer from reaching the
+  // outside-tap handler at all. The .contains() guard below should already
+  // spare them, but under Safari/WebKit a slider's pointer capture can retarget
+  // the event so .contains() reads false and the drag dismisses the mixer —
+  // exactly the "click a slider and it closes" bug. Halting here is airtight.
+  popEl.addEventListener("pointerdown", (e) => e.stopPropagation());
 
   // dismiss on an outside tap or Escape
   document.addEventListener("pointerdown", (e) => { if (popOpen && !audioCluster.contains(e.target)) closePop(); });
@@ -1208,19 +1254,18 @@
     chipsEl.appendChild(chip);
     const dur = 0.16 + word.length * 0.06; // writing pace scales with word length
     sfx.scratch(dur); // pen scratches for as long as the word takes to write
-    // The clip is just the left→right write-on; clear it once written so no
-    // residual inset lingers. A leftover right inset is a % of the chip's box,
-    // which for a 1-char tile (! ?) is too small to clear Caveat's forward
-    // slant — the lean would stay clipped forever.
+    // Reveal left→right by sweeping the right inset 100%→0. Two Safari traps to
+    // avoid (this runs in HF's iframe under WebKit): Safari CLAMPS negative
+    // clip-path insets to 0, and it won't repaint a clip-path that's later
+    // *removed* (clearProps) until a manual reflow. The old negative insets +
+    // clearProps therefore left the just-written word shaved off on the right
+    // until you inspect-element. So: end on a plain inset(0) — no negatives, no
+    // removal — and pad .sq-chip-text (cancelled in layout) so inset(0) wraps
+    // every glyph, slant and descender with room to spare.
     gsap.fromTo(
       text,
-      { clipPath: "inset(-20% 100% -20% -10%)" },
-      {
-        clipPath: "inset(-20% -10% -20% -10%)",
-        duration: dur,
-        ease: "none",
-        clearProps: "clipPath",
-      }
+      { clipPath: "inset(0 100% 0 0)" },
+      { clipPath: "inset(0 0% 0 0)", duration: dur, ease: "none" }
     );
   }
 
