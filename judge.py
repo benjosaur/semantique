@@ -103,7 +103,7 @@ def judge(payload: dict) -> dict:
     round-trip through the client.
     """
     words = payload["words"]
-    targets = payload["targets"]  # still-unchecked labels; any of them wins
+    remaining = payload["targets"]  # still-unchecked labels; only the win check (+ stub) use these
     level = get_level(payload["level_id"])
     labels = level.labels
     if not words:
@@ -120,10 +120,12 @@ def judge(payload: dict) -> dict:
             # Favour the first still-needed target so a collect-them-all run
             # is playable without a token.
             fake = {label: -6.0 - i for i, label in enumerate(labels)}
-            fake[targets[0] if targets else labels[0]] = -0.3
+            fake[remaining[0] if remaining else labels[0]] = -0.3
             probs = renormalize(fake)
         else:
-            probs = renormalize(score_labels(sentence, labels, targets, level.examples))
+            # Condition on the full target set so the prompt is stable across a session;
+            # the win check below, not the prompt, is what tracks remaining targets.
+            probs = renormalize(score_labels(sentence, labels, level.targets, level.examples))
     except Exception as e:
         return {"ok": False, "error": str(e)}
     winner = max(probs, key=probs.get)
@@ -132,5 +134,5 @@ def judge(payload: dict) -> dict:
         "sentence": sentence,
         "probs": probs,
         "winner": winner,
-        "verdict": "win" if winner in targets else "lose",
+        "verdict": "win" if winner in remaining else "lose",
     }
