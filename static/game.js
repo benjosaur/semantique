@@ -85,8 +85,9 @@
   const INK_SOFT = "#5a564c";
   const ACCENT = "#b3402e";
 
-  // A grid cell appends its word unless it's structural (start / blank / ⏎ / wings / portal).
-  const appendsWord = (w) => w && w !== "start" && w !== "⏎" && w !== "wings" && w !== "portal";
+  // A grid cell appends its word unless it's structural (start / blank / ⏎ / wings / portal / shift).
+  const appendsWord = (w) =>
+    w && w !== "start" && w !== "⏎" && w !== "wings" && w !== "portal" && w !== "shift";
 
   // ---- HUD ----
   // The targets checklist: every label to collect. Checks persist per board
@@ -264,14 +265,33 @@
     }
   }
 
-  function drawTileCanvas(ctx, word) {
-    const special = word === "start" || word === "⏎" || word === "wings" || word === "portal";
-    // only the submit tile keeps a dashed rim as a "press me" cue; the start,
-    // wings and portal tiles read as normal solid keycaps.
-    drawKeycapBase(ctx, special, word === "⏎");
+  // A shift keycap: two stacked accent ⇨ arrows — the "shuffle the rows" key.
+  // Hopping onto it rotates every row under the top one a column to the right.
+  function drawShiftKeyIcon(ctx) {
+    ctx.strokeStyle = ACCENT;
+    ctx.lineJoin = ctx.lineCap = "round";
+    const cx = TILE_PX / 2;
+    const half = 70; // arrow half-length
+    const barb = 42; // barb reach
+    for (const ay of [150, 234]) { // two arrows, stacked
+      const tip = cx + half;
+      ctx.lineWidth = 16;
+      wobblyLine(ctx, cx - half, ay, tip, ay, 3); ctx.stroke(); // shaft
+      wobblyLine(ctx, tip, ay, tip - barb, ay - barb * 0.82, 3); ctx.stroke(); // upper barb
+      wobblyLine(ctx, tip, ay, tip - barb, ay + barb * 0.82, 3); ctx.stroke(); // lower barb
+    }
+  }
 
-    // the wings tile is wordless — its icon IS the cue.
+  function drawTileCanvas(ctx, word) {
+    const special =
+      word === "start" || word === "⏎" || word === "wings" || word === "shift" || word === "portal";
+    // the submit and shift tiles keep a dashed "press me" rim; the start, wings
+    // and portal tiles read as normal solid keycaps.
+    drawKeycapBase(ctx, special, word === "⏎" || word === "shift");
+
+    // the wings / shift tiles are wordless — their icon IS the cue.
     if (word === "wings") return drawWingsKeyIcon(ctx);
+    if (word === "shift") return drawShiftKeyIcon(ctx);
 
     // the word — start/empty/portal tiles are blank squares (the portal's spiral
     // is a separate spinning mesh), so they stay wordless
@@ -485,6 +505,7 @@
   // (Re)build the keycaps for the active board, disposing the previous set.
   function buildTiles() {
     for (const t of tiles) {
+      gsap.killTweensOf(t.mesh.position); // drop any in-flight shuffle tween
       board.remove(t.mesh);
       t.texture.dispose();
       t.mesh.material[0].dispose(); // per-tile cap material (side is shared)
@@ -1133,6 +1154,13 @@
       tone({ type: "sine", from: 240, to: 920, dur: 0.18, vol: 0.16 });
       tone({ type: "triangle", from: 720, to: 170, dur: 0.3, vol: 0.16, at: 0.17 });
     },
+    shuffle() {
+      // rows slide sideways: an airy whoosh, then a soft thock as the wrapped
+      // cap drops back into its new leftmost home
+      tone({ type: "sine", from: 300, to: 560, dur: 0.18, vol: 0.1 });
+      thud({ dur: 0.06, vol: 0.12, freq: 520 });
+      thud({ dur: 0.05, vol: 0.14, freq: 950, at: 0.42 });
+    },
     scratch(dur = 0.4) {
       if (!audio() || !scratchBuf) return; // sample still decoding → skip silently
       const src = ac.createBufferSource();
@@ -1528,6 +1556,47 @@
       .to(charMesh.scale, { x: 1, y: 1, duration: 0.22, ease: "sine.inOut" }, 0.16);
   }
 
+  // ---- column shuffle (the `shift` tiles) ----
+  // Hop onto a shift tile and every row UNDER the top row rotates its columns
+  // one step right: the rightmost cap of each row wraps around to become the
+  // leftmost, arcing up-and-over the caps that slide in beneath it. The top row
+  // (the shift tiles + start) never moves. The shuffle lives only in the meshes'
+  // positions and each tile's `col` — `level.grid` is never mutated, so a board
+  // reload (buildTiles) restores the canonical layout for free.
+  const SHIFT_LIFT = 0.85; // how high the wrapping cap rises as it arcs over
+  function shiftColumns(onDone) {
+    const rest = -TILE_DEPTH / 2;
+    let last = 0;
+    for (const t of tiles) {
+      if (t.row < 1) continue; // the top row holds still
+      const newCol = (t.col + 1) % COLS;
+      const destX = tileAt(t.row, newCol).x;
+      const stagger = (t.row - 1) * 0.04; // a soft top-to-bottom wave
+      const slide = 0.46; // seconds for one column step
+      gsap.killTweensOf(t.mesh.position);
+      if (newCol === 0) {
+        // the rightmost cap wraps: lift up, carry left over the others, set down
+        gsap.timeline({ delay: stagger })
+          .to(t.mesh.position, { x: destX, duration: slide, ease: "power2.inOut" }, 0)
+          .to(t.mesh.position, { y: rest + SHIFT_LIFT, duration: slide / 2, ease: "power1.out" }, 0)
+          .to(t.mesh.position, { y: rest, duration: slide / 2, ease: "power1.in" }, slide / 2);
+      } else {
+        gsap.to(t.mesh.position, { x: destX, duration: slide, ease: "power2.inOut", delay: stagger });
+      }
+      t.col = newCol; // logical home updates now; the tween carries the mesh there
+      last = Math.max(last, slide + stagger);
+    }
+    // re-sort so tile(r,c) = tiles[r*COLS+c] still indexes the cap now at (r,c)
+    tiles.sort((a, b) => a.row - b.row || a.col - b.col);
+    gsap.delayedCall(last, onDone);
+  }
+
+  function doShift() {
+    state = "shifting"; // block input until the rows settle
+    sfx.shuffle();
+    shiftColumns(settleIdle); // last-hop warning, then resume on the same tile
+  }
+
   function hopTo(r, c) {
     state = "hopping";
     if (flightLeft > 0) return glideTo(r, c); // airborne: glide, don't ground-hop
@@ -1585,6 +1654,9 @@
 
     // a wings tile launches flight: the doodle puts on wings and lifts off.
     if (word === "wings") return takeOff();
+
+    // a shift tile shuffles the word rows one column to the right (wrapping).
+    if (word === "shift") return doShift();
 
     if (appendsWord(word)) {
       words.push(word);
