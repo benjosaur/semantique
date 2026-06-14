@@ -145,9 +145,16 @@
     },
   };
 
-  // Handwritten font must be loaded before we bake it into canvas textures.
+  // Fonts must be loaded before we bake Patrick Hand into canvas textures AND
+  // before the HUD/prompt/card lay out their Caveat text — otherwise the DOM
+  // text renders in a fallback face, then reflows when the webfont lands.
+  // document.fonts.ready alone is unreliable here: the Google Fonts stylesheet
+  // arrives async, and `ready` only waits for faces already in active use, so
+  // Caveat 600 (the verdict card) isn't covered. Request every weight we use.
   await Promise.all([
     document.fonts.load('400 80px "Patrick Hand"'),
+    document.fonts.load('700 42px "Caveat"'),
+    document.fonts.load('600 34px "Caveat"'),
     document.fonts.ready,
   ]);
 
