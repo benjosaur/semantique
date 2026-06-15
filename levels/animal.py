@@ -1,11 +1,14 @@
-"""The animal board — a 5x5 with a central start and four corner exits.
+"""The animal board — the home level: a 5x4 you start sitting on a submit key.
 
-No walls: the word tiles only hint at the animals; the puzzle is routing a path
-whose sentence the judge reads as the critter you're hunting.
+The doodle spawns on the central "⏎" (row 2, col 1) but doesn't fire it — you're
+parked on the button, free to hop off and write a sentence before hopping back
+onto any "⏎" to send it. Three submit keys (the centre start, top-right, and
+bottom-right) give you more than one place to lock in.
 
-Three "portal" tiles ring the board — top (0,1), right (2,4), bottom (4,1). Each
-teleports to the next one clockwise (top -> right -> bottom -> top), so a portal
-is a wordless shortcut across the grid (the hop onto it still costs budget).
+One "wings" tile (bottom-left) is the clean exit: hop on and the doodle sprouts
+wings for three airborne hops (two free glides, then a descent) — soar over the
+keys straight onto a "⏎". No portals here; the word tiles only hint at the
+critter, and the puzzle is routing a path the judge reads as the animal you want.
 """
 
 from levels._base import Level
@@ -14,15 +17,16 @@ LEVEL = Level(
     id="animal",
     title="critters",
     grid=[
-        ["⏎", "portal", "ouch", "cylinder", "⏎"],
-        ["smart", "fur", "loud", "puppy", "?"],
-        ["love", "not", "start", "sea", "portal"],
-        ["small", "hate", "winged", "quiet", "big"],
-        ["⏎", "portal", "frolick", "grass", "⏎"],
+        ["and", "ouchy", "money", "⏎"],
+        ["silly", "alpha", "love", "artist"],
+        ["very", "⏎", "angry", "thinker"],
+        ["happy", "not", "proud", "being"],
+        ["wings", "sharp", "legs", "⏎"],
     ],
-    start=(2, 2),  # the centre tile
-    targets=["whale", "otter", "cat", "dog", "bear", "owl", "mouse", "cow"],
-    labels=["whale", "otter", "cat", "dog", "bear", "owl", "mouse", "cow"],
+    start=(2, 1),  # the central submit key — you start on it, it doesn't fire
+    targets=["whale", "otter", "cat", "dog", "bear", "owl", "mouse", "lion", "cow"],
+    labels=["whale", "otter", "cat", "dog", "bear", "owl", "mouse", "lion", "cow"],
     budget=12,
-    order=1,
+    order=0,
+    home=True,
 )
