@@ -1,9 +1,8 @@
-"""The animal board — the home level: a 4x4 you start sitting on a submit key.
+"""The animal board — the home level: a 4x4 with a blank central start.
 
-The doodle spawns on the central "⏎" (row 2, col 1) but doesn't fire it — you're
-parked on the button, free to hop off and write a sentence before hopping back
-onto any "⏎" to send it. Three submit keys (the centre start, top-right, and
-bottom-right) give you more than one place to lock in.
+The doodle spawns on the blank centre tile (row 2, col 1); hop off to write a
+sentence, then hop onto a "⏎" to send it. Two submit keys (top-right and
+bottom-right) give you a choice of where to lock in.
 
 One "wings" tile (top-left) is the clean exit: hop on and the doodle sprouts
 wings for three airborne hops (two free glides, then a descent) — soar over the
@@ -19,10 +18,10 @@ LEVEL = Level(
     grid=[
         ["wings", "spicy", "gruff", "⏎"],
         ["silly", "peak", "love", "chill"],
-        ["super", "⏎", "slow", "sphere"],
-        ["massive", "not", "grumpy", "⏎"],
+        ["huge", "start", "slow", "lump"],
+        ["friend", "not", "grumpy", "⏎"],
     ],
-    start=(2, 1),  # the central submit key — you start on it, it doesn't fire
+    start=(2, 1),  # the blank central home tile
     targets=["whale", "otter", "cat", "dog", "bear", "owl", "mouse", "lion", "cow"],
     labels=["whale", "otter", "cat", "dog", "bear", "owl", "mouse", "lion", "cow"],
     budget=12,
