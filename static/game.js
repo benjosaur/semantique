@@ -1794,10 +1794,9 @@
   // ---- the hint bulb + modal (boards 1 & 3) ----
   // Tapping the bulb opens a confirm modal ("view the hint?"); on "yes" it
   // reveals a SINGLE nudge toward the next target. Only emotion + critters carry
-  // hints (loadLevel calls syncHintUI to show/hide the bulb). Critters has two
-  // hinted critters, so we surface just one — the first still-uncollected hinted
-  // critter in the board's target list (dog precedes cow there) — then the same
-  // shrug as board 1 once both are in.
+  // hints (loadLevel calls syncHintUI to show/hide the bulb). We surface just one
+  // — the first still-uncollected hinted target in the board's target list — then
+  // the shrug once every hinted target on the board is in.
   const hintBoxEl = element.querySelector(".sq-hintbox");
   const hintCardEl = element.querySelector(".sq-hintbox-card");
   const hintQEl = element.querySelector(".sq-hintbox-q");
@@ -1808,18 +1807,18 @@
   const hintCloseBtn = element.querySelector(".sq-hintbox-close");
 
   const SHRUG_HINT = "yeah idk maybe try a little harder?";
-  // critter -> its clue; checked in board target-list order (dog before cow)
-  const CRITTER_HINTS = {
+  // target word -> its clue; surfaced in board target-list order (words are
+  // unique across boards, so one map covers emotion + critters)
+  const TARGET_HINTS = {
+    betrayed: "Et tu Brute? I feel little hurt again ? Angry sad",
     dog: "not huge silly friend not grumpy slow love gRUFF RUFF",
-    cow: "slow huge friend not... goes moo",
+    cow: "slow huge friend grumpy... goes moo",
   };
   const hasHint = () => level.id === "emotion" || level.id === "animal";
   function hintText() {
-    if (level.id === "animal") {
-      const got = checkedOnThisLevel();
-      for (const t of level.targets) { // the first uncollected hinted critter
-        if (CRITTER_HINTS[t] && !got.has(t)) return CRITTER_HINTS[t];
-      }
+    const got = checkedOnThisLevel();
+    for (const t of level.targets) { // first uncollected hinted target on this board
+      if (TARGET_HINTS[t] && !got.has(t)) return TARGET_HINTS[t];
     }
     return SHRUG_HINT;
   }
