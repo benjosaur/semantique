@@ -18,11 +18,11 @@ LEVEL = Level(
     id="animal",
     title="critters",
     grid=[
-        ["wings", "ouchy", "loud", "⏎"],
+        ["wings", "ouchy", "rough", "⏎"],
         ["silly", "peak", "love", "chill"],
-        ["super", "⏎", "and", "thinker"],
+        ["super", "⏎", "slow", "genius"],
         ["happy", "not", "grumpy", "buddy"],
-        ["wings", "criminal", "majestic", "⏎"],
+        ["wings", "scrappy", "majestic", "⏎"],
     ],
     start=(2, 1),  # the central submit key — you start on it, it doesn't fire
     targets=["whale", "otter", "cat", "dog", "bear", "owl", "mouse", "lion", "cow"],
