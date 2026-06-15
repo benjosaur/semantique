@@ -11,15 +11,13 @@ license: mit
 short_description: How well can you prompt a small AI?
 thumbnail: https://huggingface.co/spaces/benjosaur/semantique/resolve/main/static/social-card.png
 tags:
-  - buildsmall
-  - minicpm
-  - tiny-titan
   - track:wood
   - sponsor:openbmb
   - sponsor:modal
   - achievement:offgrid
   - achievement:offbrand
   - achievement:fieldnotes
+  - achievement:tiny-titan
 ---
 
 # Semantique 🐇
