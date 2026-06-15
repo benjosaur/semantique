@@ -17,7 +17,7 @@ LEVEL = Level(
     title="critters",
     grid=[
         ["wings", "spicy", "gruff", "⏎"],
-        ["silly", "peak", "love", "chill"],
+        ["silly", "worst", "love", "chill"],
         ["huge", "start", "slow", "lump"],
         ["friend", "not", "grumpy", "⏎"],
     ],
