@@ -217,6 +217,91 @@
   height: 26px;
 }
 
+/* ---- hint bulb (boards 1 & 3): a line-drawn lightbulb + its nudge bubble ---- */
+.sq-help {
+  position: relative; /* anchors the hint bubble */
+  display: flex;
+  align-items: center;
+  pointer-events: auto; /* the HUD is pointer-events:none — re-enable hits here */
+}
+.sq-help-btn {
+  display: block;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  line-height: 0;
+}
+.sq-help-btn canvas {
+  display: block;
+  width: 30px;
+  height: 30px;
+}
+
+/* the hint modal: a confirm step ("view the hint?") that, on yes, reveals one
+   nudge. Modelled on the welcome card so it reads as the same hand-drawn note. */
+.sq-hintbox {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(250, 248, 242, 0.82);
+  z-index: 4;
+}
+.sq-hintbox-card {
+  position: relative;
+  width: min(420px, 86vw);
+  padding: 28px 32px 28px;
+  background: #fffdf7;
+  border: 3px solid var(--ink);
+  border-radius: 235px 25px 245px 20px / 25px 235px 20px 245px;
+  box-shadow: 4px 5px 0 rgba(28, 27, 24, 0.12);
+  transform: rotate(-1deg);
+  text-align: center;
+}
+.sq-hintbox-q {
+  font-family: "Caveat", cursive;
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-wrap: balance;
+  color: var(--ink);
+  margin-bottom: 22px;
+}
+.sq-hintbox-text {
+  font-family: "Patrick Hand", cursive;
+  font-size: 24px;
+  line-height: 1.45;
+  text-wrap: balance;
+  color: var(--ink);
+  margin-bottom: 22px;
+}
+.sq-hintbox-actions {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+.sq-hintbox-yes,
+.sq-hintbox-no,
+.sq-hintbox-close {
+  font-family: "Patrick Hand", cursive;
+  font-size: 21px;
+  color: var(--ink);
+  background: transparent;
+  border: 2.5px solid var(--ink);
+  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+  padding: 5px 24px 7px;
+  cursor: pointer;
+  transform: rotate(-0.6deg);
+}
+.sq-hintbox-no { transform: rotate(0.8deg); }
+.sq-hintbox-yes:hover,
+.sq-hintbox-no:hover,
+.sq-hintbox-close:hover { background: var(--ink); color: var(--paper); }
+
 /* ---- prompt strip ---- */
 
 .sq-prompt {
@@ -597,6 +682,7 @@
   .sq-hud-right { order: 2; gap: 10px; }
   .sq-audio { gap: 4px; }
   .sq-audio-btn, .sq-audio-btn canvas { width: 24px; height: 24px; }
+  .sq-help-btn, .sq-help-btn canvas { width: 24px; height: 24px; }
 
   /* drop the prompt + board below the variable-height wrapped checklist */
   .sq-prompt { top: var(--hud-h, 52px); padding-left: 12px; padding-right: 12px; gap: 6px; }
@@ -610,6 +696,10 @@
   .sq-card-sentence { font-size: 27px; }
   .sq-bar-row { grid-template-columns: 60px 1fr 44px; font-size: 17px; }
   .sq-stamp { font-size: 32px; top: -16px; right: -4px; } /* keep the sticker on-screen */
+
+  .sq-hintbox-card { width: min(380px, 88vw); padding: 22px 22px 24px; }
+  .sq-hintbox-q { font-size: 29px; margin-bottom: 18px; }
+  .sq-hintbox-text { font-size: 21px; margin-bottom: 18px; }
 
   .sq-welcome-card { width: min(400px, 88vw); padding: 24px 22px 26px; }
   .sq-welcome-title { font-size: 32px; }

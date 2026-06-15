@@ -1589,6 +1589,44 @@
     ctx.globalAlpha = 1;
   }
 
+  // The hint bulb: a wobbly glass bulb over a stacked-thread screw base, with a
+  // few accent "idea" rays fanning off the top. Drawn like the audio icons so it
+  // boils (re-jitters) with them. (Shown only on boards that carry hints.)
+  function drawBulbIcon(ctx) {
+    ctx.setTransform(TEX_SCALE, 0, 0, TEX_SCALE, 0, 0);
+    ctx.clearRect(0, 0, ICON, ICON);
+    ctx.lineJoin = ctx.lineCap = "round";
+    const cx = 15, cy = 14, r = 6.3;
+    // glass bulb
+    ctx.strokeStyle = INK;
+    ctx.fillStyle = "rgba(255,253,247,0.9)";
+    ctx.lineWidth = 2.4;
+    wobblyCircle(ctx, cx, cy, r, 0.7);
+    ctx.fill();
+    ctx.stroke();
+    // a little filament loop inside the glass
+    ctx.lineWidth = 1.7;
+    wobblyLine(ctx, cx - 2.6, cy + 1.6, cx, cy - 1.8, 0.5); ctx.stroke();
+    wobblyLine(ctx, cx, cy - 1.8, cx + 2.6, cy + 1.6, 0.5); ctx.stroke();
+    // screw base: two short sides + stacked threads beneath the bulb
+    ctx.lineWidth = 2.2;
+    const bx = 3.3, by = cy + r - 0.6;
+    wobblyLine(ctx, cx - bx, by, cx - bx + 0.4, by + 4, 0.4); ctx.stroke();
+    wobblyLine(ctx, cx + bx, by, cx + bx - 0.4, by + 4, 0.4); ctx.stroke();
+    for (let i = 0; i < 3; i++) {
+      const ty = by + 1.1 + i * 1.6;
+      wobblyLine(ctx, cx - bx + 0.2, ty, cx + bx - 0.2, ty, 0.4); ctx.stroke();
+    }
+    // idea rays — three short accent strokes off the upper hemisphere
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 1.8;
+    for (const a of [-2.42, -Math.PI / 2, -0.72]) {
+      const dx = Math.cos(a), dy = Math.sin(a);
+      wobblyLine(ctx, cx + dx * (r + 1.6), cy + dy * (r + 1.6), cx + dx * (r + 4), cy + dy * (r + 4), 0.4);
+      ctx.stroke();
+    }
+  }
+
   const audioCluster = element.querySelector(".sq-audio");
   const musicBtn = element.querySelector(".sq-music-btn");
   const sfxBtn = element.querySelector(".sq-sfx-btn");
@@ -1599,6 +1637,9 @@
   const sfxIconCtx = makeIconCanvas(sfxBtn).getContext("2d");
   const volMusicCtx = makeIconCanvas(volMusicBtn).getContext("2d");
   const volSfxCtx = makeIconCanvas(volSfxBtn).getContext("2d");
+  const helpCluster = element.querySelector(".sq-help");
+  const helpBtn = element.querySelector(".sq-help-btn");
+  const helpIconCtx = makeIconCanvas(helpBtn).getContext("2d");
 
   // ---- volume sliders: a wobbly ink rule with a filled level + draggable nib ----
   const SLIDER_W = 120, SLIDER_H = 26, SLIDER_PAD = 11;
@@ -1640,6 +1681,7 @@
     const mOn = musicVol > 0, sOn = sfxVol > 0;
     drawMusicIcon(musicIconCtx, mOn);
     drawSpeakerIcon(sfxIconCtx, sOn);
+    if (!helpCluster.classList.contains("sq-hidden")) drawBulbIcon(helpIconCtx);
     if (popOpen) {
       drawMusicIcon(volMusicCtx, mOn);
       drawSpeakerIcon(volSfxCtx, sOn);
@@ -1723,6 +1765,92 @@
   // dismiss on an outside tap or Escape
   document.addEventListener("pointerdown", (e) => { if (popOpen && !audioCluster.contains(e.target)) closePop(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePop(); });
+
+  // ---- the hint bulb + modal (boards 1 & 3) ----
+  // Tapping the bulb opens a confirm modal ("view the hint?"); on "yes" it
+  // reveals a SINGLE nudge toward the next target. Only emotion + critters carry
+  // hints (loadLevel calls syncHintUI to show/hide the bulb). Critters has two
+  // hinted critters, so we surface just one — the first still-uncollected hinted
+  // critter in the board's target list (dog precedes cow there) — then the same
+  // shrug as board 1 once both are in.
+  const hintBoxEl = element.querySelector(".sq-hintbox");
+  const hintCardEl = element.querySelector(".sq-hintbox-card");
+  const hintQEl = element.querySelector(".sq-hintbox-q");
+  const hintTextEl = element.querySelector(".sq-hintbox-text");
+  const hintActionsEl = element.querySelector(".sq-hintbox-actions");
+  const hintYesBtn = element.querySelector(".sq-hintbox-yes");
+  const hintNoBtn = element.querySelector(".sq-hintbox-no");
+  const hintCloseBtn = element.querySelector(".sq-hintbox-close");
+
+  const SHRUG_HINT = "yeah idk maybe try a little harder?";
+  // critter -> its clue; checked in board target-list order (dog before cow)
+  const CRITTER_HINTS = {
+    dog: "not huge silly friend not grumpy slow love gRUFF RUFF",
+    cow: "slow huge friend not... goes moo",
+  };
+  const hasHint = () => level.id === "emotion" || level.id === "animal";
+  function hintText() {
+    if (level.id === "animal") {
+      const got = checkedOnThisLevel();
+      for (const t of level.targets) { // the first uncollected hinted critter
+        if (CRITTER_HINTS[t] && !got.has(t)) return CRITTER_HINTS[t];
+      }
+    }
+    return SHRUG_HINT;
+  }
+
+  let hintBoxOpen = false;
+  // reset the modal to its "are you sure?" confirm state
+  function resetHintBox() {
+    hintQEl.classList.remove("sq-hidden");
+    hintActionsEl.classList.remove("sq-hidden");
+    hintTextEl.classList.add("sq-hidden");
+    hintCloseBtn.classList.add("sq-hidden");
+  }
+  function openHintBox() {
+    if (!hasHint()) return;
+    hintBoxOpen = true;
+    resetHintBox();
+    hintBoxEl.classList.remove("sq-hidden");
+    helpBtn.setAttribute("aria-expanded", "true");
+    gsap.fromTo(hintCardEl,
+      { scale: 0.9, autoAlpha: 0, rotation: -4 },
+      { scale: 1, autoAlpha: 1, rotation: -1, duration: 0.26, ease: "back.out(1.7)" });
+  }
+  function closeHintBox() {
+    if (!hintBoxOpen) return;
+    hintBoxOpen = false;
+    hintBoxEl.classList.add("sq-hidden");
+    helpBtn.setAttribute("aria-expanded", "false");
+    gsap.set(hintCardEl, { clearProps: "opacity,transform,visibility" });
+  }
+  // "yes": swap the confirm prompt for the actual nudge (re-read so critters
+  // reflects what's already been collected)
+  function revealHint() {
+    hintTextEl.textContent = hintText();
+    hintQEl.classList.add("sq-hidden");
+    hintActionsEl.classList.add("sq-hidden");
+    hintTextEl.classList.remove("sq-hidden");
+    hintCloseBtn.classList.remove("sq-hidden");
+    sfx.pop();
+    gsap.fromTo(hintTextEl, { autoAlpha: 0, y: 6 }, { autoAlpha: 1, y: 0, duration: 0.2 });
+  }
+
+  // Show/hide the bulb for the active board (called from loadLevel). Closing the
+  // modal too keeps a stale hint from surviving a board switch.
+  function syncHintUI() {
+    closeHintBox();
+    const show = hasHint();
+    helpCluster.classList.toggle("sq-hidden", !show);
+    if (show) drawBulbIcon(helpIconCtx);
+  }
+
+  helpBtn.addEventListener("click", () => { audio(); sfx.click(); hintBoxOpen ? closeHintBox() : openHintBox(); });
+  hintYesBtn.addEventListener("click", () => { sfx.click(); revealHint(); });
+  hintNoBtn.addEventListener("click", () => { sfx.click(); closeHintBox(); });
+  hintCloseBtn.addEventListener("click", () => { sfx.click(); closeHintBox(); });
+  hintBoxEl.addEventListener("pointerdown", (e) => { if (e.target === hintBoxEl) closeHintBox(); }); // backdrop tap
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeHintBox(); });
 
   syncAudioUI();
 
@@ -2743,6 +2871,7 @@
     buildTiles();
     buildTargets();
     buildSwapTiles();
+    syncHintUI();
     resetGameState();
     reframe();
     dropInBoard();

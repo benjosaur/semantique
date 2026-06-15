@@ -6,6 +6,9 @@
       <div class="sq-context" aria-label="hops">
         <span class="sq-context-count"><b class="sq-ctx-used">0</b>/<b class="sq-ctx-cap"></b></span>
       </div>
+      <div class="sq-help sq-hidden">
+        <button class="sq-help-btn" type="button" aria-label="hint" aria-haspopup="dialog" aria-expanded="false"></button>
+      </div>
       <div class="sq-audio">
         <button class="sq-audio-btn sq-music-btn" type="button" aria-label="music volume" aria-haspopup="dialog" aria-expanded="false"></button>
         <button class="sq-audio-btn sq-sfx-btn" type="button" aria-label="sound effects volume" aria-haspopup="dialog" aria-expanded="false"></button>
@@ -36,6 +39,17 @@
         <button class="sq-retry sq-hidden" type="button">poke the judge again</button>
         <button class="sq-again sq-hidden" type="button">hop again</button>
       </div>
+    </div>
+  </div>
+  <div class="sq-hintbox sq-hidden" role="dialog" aria-modal="true" aria-label="hint">
+    <div class="sq-hintbox-card">
+      <div class="sq-hintbox-q">Are you sure you want to view the hint?</div>
+      <div class="sq-hintbox-text sq-hidden"></div>
+      <div class="sq-hintbox-actions">
+        <button class="sq-hintbox-yes" type="button">yes</button>
+        <button class="sq-hintbox-no" type="button">no</button>
+      </div>
+      <button class="sq-hintbox-close sq-hidden" type="button">got it</button>
     </div>
   </div>
   <div class="sq-welcome sq-hidden" role="dialog" aria-modal="true" aria-label="welcome">
