@@ -2415,9 +2415,8 @@
       "AElEQVR4nOzdaZBkV3Xn8f99L9eqzNp6q+rqVqsltdRqJBASCAESi8B4wGOMx9jjmcGesT0z9ngc" +
       "ETO2Z+yJ8XjGYWzPjHfAYIxtwGBjjAFjmx0kJBAgkBBatVu9d3VXV2Vl5vK2+5+IqsxqdXdVdVZl",
     "diary.txt":
-      "Dear diary — day 47 of the hackathon. the judge STILL won't say \"otter\" no " +
-      "matter how i word it. the little doodle keeps staring at me. i apologised to a " +
-      "keycap today. send snacks. send help. — B",
+      "Dear Diary, it's day 46 and I STILL can't get 'betrayed'... " +
+      "I have tried absolutely everything..",
     "receipt.pdf":
       "%PDF-1.7 %âãÏÓ 6 0 obj <</Length 2480/Filter/FlateDecode>>" +
       " stream xÚWÉÛ0 CORNER CAFE · oat flat white 4.50" +
