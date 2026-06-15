@@ -21,5 +21,6 @@ LEVEL = Level(
     targets=["happy", "elated", "irked", "scared", "distraught", "furious", "betrayed"],  # collect them all
     labels=["happy", "elated", "irked", "scared", "distraught", "furious", "betrayed"],
     budget=10,
-    order=1,
+    order=0,  # the boot board; progression is feelings → bonus → critters
+    home=True,
 )
