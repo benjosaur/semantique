@@ -2326,6 +2326,14 @@
       " stream xÚWÉÛ0 CORNER CAFE · oat flat white 4.50" +
       " · almond croissant 3.20 · TOTAL £7.70 endstream endobj",
   };
+  // A file-specific aside on the death card, under the byte dump — the game
+  // reacting to *which* file you just face-planted into.
+  const FILE_TAGLINES = {
+    "dog.png": "cute dog though.",
+    "diary.txt": "…what the heck are you writing in here?",
+    "receipt.pdf":
+      "there's probably a safer place to store your financial documents.",
+  };
   // collapse to one line and trim — the screen shows a taste, not a wall of bytes
   const fileFirstLine = (s) => s.replace(/\s*\n\s*/g, " ").slice(0, 78) + "…";
 
@@ -2441,15 +2449,23 @@
   // doodle ran out of hops.
   function showDeathCard() {
     if (deathReason && deathReason.dumpLine) {
-      // a file bomb: show the filename + the bytes that overran the window
+      // a file bomb: the filename, the bytes that overran the window, and a
+      // file-specific aside (see FILE_TAGLINES)
       sentenceEl.innerHTML = "";
       const cap = document.createElement("div");
       cap.className = "sq-card-dumpcap";
-      cap.textContent = "you opened " + deathReason.file;
+      cap.textContent = "whoops, looks like " + deathReason.file + " was too big to handle.";
       const blob = document.createElement("div");
       blob.className = "sq-card-dump";
       blob.textContent = deathReason.dumpLine;
       sentenceEl.append(cap, blob);
+      const aside = FILE_TAGLINES[deathReason.file];
+      if (aside) {
+        const tag = document.createElement("div");
+        tag.className = "sq-card-tagline";
+        tag.textContent = aside;
+        sentenceEl.appendChild(tag);
+      }
     } else {
       sentenceEl.textContent = "out of hops…";
     }

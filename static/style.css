@@ -410,11 +410,14 @@
   min-height: 40px;
 }
 
-/* file-bomb death card: a caption + the overrun bytes in monospace */
+/* file-bomb death card: a caption + the overrun bytes in monospace.
+   margin-top drops the caption clear of the "context window exceeded"
+   stamp, which dips into the top-right corner. */
 .sq-card-dumpcap {
   font-family: "Caveat", cursive;
   font-weight: 600;
   font-size: 26px;
+  margin-top: 20px;
   margin-bottom: 8px;
 }
 .sq-card-dump {
@@ -429,6 +432,13 @@
   border-radius: 8px;
   padding: 6px 8px;
   margin-bottom: 4px;
+}
+/* file-specific aside under the dump — the game's reaction to the file */
+.sq-card-tagline {
+  font-family: "Caveat", cursive;
+  font-size: 22px;
+  color: var(--ink-soft);
+  margin-top: 8px;
 }
 
 .sq-bars {
