@@ -5,10 +5,11 @@ parked on the button, free to hop off and write a sentence before hopping back
 onto any "⏎" to send it. Three submit keys (the centre start, top-right, and
 bottom-right) give you more than one place to lock in.
 
-One "wings" tile (bottom-left) is the clean exit: hop on and the doodle sprouts
-wings for three airborne hops (two free glides, then a descent) — soar over the
-keys straight onto a "⏎". No portals here; the word tiles only hint at the
-critter, and the puzzle is routing a path the judge reads as the animal you want.
+Two "wings" tiles (centre at row 2 col 2, and bottom-left) are the clean exits:
+hop on and the doodle sprouts wings for three airborne hops (two free glides,
+then a descent) — soar over the keys straight onto a "⏎". No portals here; the
+word tiles only hint at the critter, and the puzzle is routing a path the judge
+reads as the animal you want.
 """
 
 from levels._base import Level
@@ -17,11 +18,11 @@ LEVEL = Level(
     id="animal",
     title="critters",
     grid=[
-        ["and", "ouchy", "money", "⏎"],
+        ["and", "ouchy", "loud", "⏎"],
         ["silly", "alpha", "love", "artist"],
-        ["very", "⏎", "angry", "thinker"],
-        ["happy", "not", "proud", "being"],
-        ["wings", "sharp", "legs", "⏎"],
+        ["very", "⏎", "wings", "thinker"],
+        ["happy", "not", "angry", "being"],
+        ["wings", "criminal", "extreme", "⏎"],
     ],
     start=(2, 1),  # the central submit key — you start on it, it doesn't fire
     targets=["whale", "otter", "cat", "dog", "bear", "owl", "mouse", "lion", "cow"],
