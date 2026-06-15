@@ -26,7 +26,7 @@ tags:
 
 Hop around constructing prompts and see if you can tease out all the target words from **MiniCPM3-4B**. But be careful! Your context window can only stretch so far...
 
-▶ **[Watch the demo](https://youtu.be/bnMM3cq900w)**
+▶ **[Watch the demo](https://youtu.be/bnMM3cq900w)** · 📣 **[Read the LinkedIn post](https://www.linkedin.com/posts/ben-blaker-085108175_semantique-a-masochistic-adventure-game-activity-7472415885388070912-YruU)**
 
 ![The opening board: hop the doodle across word tiles and each one adds its word to your sentence for the AI to judge.](docs/original-board.png)
 
