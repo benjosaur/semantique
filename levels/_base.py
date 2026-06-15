@@ -29,6 +29,10 @@ class Level:
     budget: int  # hops before the doodle falls off the board
     order: int = 100  # play order across boards (lower comes first)
     home: bool = False  # the board the app boots into
+    glitch: bool = False  # bonus "glitch mode": the board inverts to a dark
+    # negative; "?" becomes a shrink key and file tiles blow the context (see game.js)
+    portal_to: str = ""  # if set, this board's portal tiles are a cross-level
+    # link to that level id (instead of an in-board teleport)
 
     def client_value(self) -> dict:
         """The subset shipped to the browser — no judge internals leave the server."""
@@ -40,4 +44,6 @@ class Level:
             "targets": self.targets,
             "labels": self.labels,
             "budget": self.budget,
+            "glitch": self.glitch,
+            "portal_to": self.portal_to,
         }

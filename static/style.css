@@ -249,6 +249,21 @@
   color: var(--ink);
   transform: rotate(var(--tilt, 0deg));
 }
+/* a context-bomb file dumped into the prompt: raw monospace bytes, clamped to
+   one line so the "flood" reads without smearing across the screen */
+.sq-chip-file {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace !important;
+  font-size: 16px !important;
+  font-weight: 400 !important;
+  line-height: 1.3;
+  color: var(--accent);
+  max-width: min(70vw, 620px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
 .sq-chip-text {
   display: inline-block;
   /* The write-on (game.js) clips this box left→right. We clip with a plain
@@ -304,6 +319,27 @@
   font-weight: 600;
   margin-bottom: 18px;
   min-height: 40px;
+}
+
+/* file-bomb death card: a caption + the overrun bytes in monospace */
+.sq-card-dumpcap {
+  font-family: "Caveat", cursive;
+  font-weight: 600;
+  font-size: 26px;
+  margin-bottom: 8px;
+}
+.sq-card-dump {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 2px dashed var(--ink-soft);
+  border-radius: 8px;
+  padding: 6px 8px;
+  margin-bottom: 4px;
 }
 
 .sq-bars {
@@ -460,6 +496,36 @@
 }
 
 .sq-hidden { display: none !important; }
+
+/* ---- glitch / bonus mode ---- */
+/* The whole board photo-negates: a single filter on the root flips paper to
+   black and every inked line to white (the WebGL canvas inverts along with the
+   DOM), while the hue-rotate keeps the red accent roughly red instead of cyan.
+   One declaration, and tiles/doodle/cards/HUD all come along for free. The
+   @keyframes + the page-chrome darkening live in app.py's (un-scoped) BLOCKS_CSS,
+   because this css_template is injected NESTED under the component id — global
+   selectors and at-rules don't survive here, but .sq-root-anchored ones do. */
+.sq-root.sq-glitch {
+  filter: invert(1) hue-rotate(180deg);
+}
+/* a one-shot flicker the moment the mode flips on — the screen "glitches" over */
+.sq-root.sq-glitch.sq-glitch-burst {
+  animation: sq-invert-flicker 0.8s steps(1, end) 1;
+}
+/* faint moving scanlines over the negative, for that decoded-signal hum */
+.sq-root.sq-glitch::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0 2px,
+    rgba(0, 0, 0, 0.05) 2px 3px
+  );
+  animation: sq-scanline 7s linear infinite;
+}
 
 /* ---- compact / mobile ---- */
 /* Phones (and short landscape viewports) only. The tablet/desktop single-row HUD
