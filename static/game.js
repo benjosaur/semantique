@@ -481,19 +481,44 @@
     jag([[cx + 44, 300], [TILE_PX - 72, 334]], 3); // hairline
   }
 
+  // A horizontal rainbow sweeping across `w`, its phase advancing with the clock
+  // so a tile redrawn each boil tick reads as an animated shimmer. The hackathon
+  // finale key uses this once the 🤗 unlocks it.
+  const rainbowPhase = () => (performance.now() / 9) % 360; // ~40°/s drift
+  function rainbowGradient(ctx, x0, x1, phase) {
+    const g = ctx.createLinearGradient(x0, 0, x1, 0);
+    for (let i = 0; i <= 6; i++)
+      g.addColorStop(i / 6, `hsl(${(phase + i * 64) % 360}, 92%, 56%)`);
+    return g;
+  }
+
   // An injection-payoff keycap — "build" / "small" / "hackathon", risen in a lane
   // beside output (see injectionSubmit). `state`: "ready" (collectable) → solid
   // ink + dashed "press me" rim; "locked" (behind shrink/🤗) → soft ink, plain
   // rim; "broken" (already shipped) → soft + cracked, so you step over it.
+  // The hackathon key, once READY (you're wearing the 🤗), glows in an animated
+  // rainbow — the earned-finale tile, the one win that needs no judge.
   function drawSubmitTileCanvas(ctx, label, state) {
     const ready = state === "ready";
     drawKeycapBase(ctx, !ready, ready);
-    ctx.fillStyle = ready ? INK : INK_SOFT;
     const size = label.length > 6 ? 64 : 88; // "hackathon" drops a tier
     ctx.font = `400 ${size}px "Patrick Hand"`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(label, TILE_PX / 2 + rand(-2, 2), TILE_PX / 2 + rand(-1, 3));
+    const tx = TILE_PX / 2 + rand(-2, 2), ty = TILE_PX / 2 + rand(-1, 3);
+    if (ready && label === "hackathon") {
+      // The glitch board CSS-inverts the scene (invert(1) hue-rotate(180)); pre-
+      // apply the exact inverse here so the rainbow lands in true colours (the
+      // same trick the 🤗 emoji uses), instead of going negative.
+      ctx.save();
+      if (level.glitch) ctx.filter = "hue-rotate(180deg) invert(1)";
+      ctx.fillStyle = rainbowGradient(ctx, size * 0.6, TILE_PX - size * 0.6, rainbowPhase());
+      ctx.fillText(label, tx, ty);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = ready ? INK : INK_SOFT;
+      ctx.fillText(label, tx, ty);
+    }
     if (state === "broken") drawCracks(ctx); // shipped — cracked over the word
   }
 
