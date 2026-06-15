@@ -22,6 +22,10 @@
   /* swipes drive the game — stop the browser from scrolling/zooming on them */
   touch-action: none;
   overscroll-behavior: none;
+  /* identity filter + transition so the glitch flip (below) eases in smoothly
+     from light instead of snapping — interpolates to invert(1) hue-rotate(180) */
+  filter: invert(0) hue-rotate(0deg);
+  transition: filter 0.85s ease-in-out;
 }
 
 /* faint ruled-notebook lines, like the sketch */
@@ -495,6 +499,57 @@
   box-shadow: 0 0 0 rgba(28, 27, 24, 0.12);
 }
 
+/* ---- you-win modal ---- */
+/* Shown over the bonus board once build + small + hackathon are all collected.
+   It inherits the glitch invert (the board is inverted when this fires). */
+.sq-victory {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(250, 248, 242, 0.82);
+  z-index: 6; /* above the verdict (3) and welcome (4) */
+}
+.sq-victory-card {
+  position: relative;
+  width: min(460px, 86vw);
+  padding: 34px 34px 30px;
+  background: #fffdf7;
+  border: 3px solid var(--ink);
+  border-radius: 245px 18px 235px 22px / 20px 240px 18px 245px;
+  box-shadow: 5px 6px 0 rgba(28, 27, 24, 0.14);
+  transform: rotate(-1.2deg);
+  text-align: center;
+}
+.sq-victory-title {
+  font-family: "Caveat", cursive;
+  font-size: 52px;
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--accent);
+  margin-bottom: 14px;
+}
+.sq-victory-body {
+  font-family: "Patrick Hand", cursive;
+  font-size: 21px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  margin-bottom: 22px;
+}
+.sq-victory-close {
+  font-family: "Patrick Hand", cursive;
+  font-size: 21px;
+  color: var(--ink);
+  background: transparent;
+  border: 2.5px solid var(--ink);
+  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+  padding: 5px 22px 7px;
+  cursor: pointer;
+  transform: rotate(0.5deg);
+}
+.sq-victory-close:hover { background: var(--ink); color: var(--paper); }
+
 .sq-hidden { display: none !important; }
 
 /* ---- glitch / bonus mode ---- */
@@ -506,11 +561,7 @@
    because this css_template is injected NESTED under the component id — global
    selectors and at-rules don't survive here, but .sq-root-anchored ones do. */
 .sq-root.sq-glitch {
-  filter: invert(1) hue-rotate(180deg);
-}
-/* a one-shot flicker the moment the mode flips on — the screen "glitches" over */
-.sq-root.sq-glitch.sq-glitch-burst {
-  animation: sq-invert-flicker 0.8s steps(1, end) 1;
+  filter: invert(1) hue-rotate(180deg); /* eased by the transition on .sq-root */
 }
 /* faint moving scanlines over the negative, for that decoded-signal hum */
 .sq-root.sq-glitch::after {

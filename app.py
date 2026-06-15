@@ -52,8 +52,13 @@ html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
    ~26px gap pushes the board down and clips the bottom hint off mobile screens. */
 .gradio-container .main, .html-container { padding: 0 !important; }
 
-/* Glitch mode: darken Gradio's paper chrome so the centred column's side-bars
-   don't glare beside the inverted board (the board's paper inverts to ~#05070d). */
+/* Smoothly fade Gradio's paper chrome to dark in glitch mode (matches the eased
+   filter flip on .sq-root) so the centred column's side-bars don't glare beside
+   the inverted board (the board's paper inverts to ~#05070d). */
+.gradio-container, .gradio-container .main, .gradio-container .wrap,
+.gradio-container .contain, html, body {
+  transition: background 0.85s ease-in-out;
+}
 html.sq-glitch-page,
 html.sq-glitch-page body,
 html.sq-glitch-page .gradio-container,
@@ -61,17 +66,6 @@ html.sq-glitch-page .gradio-container .main,
 html.sq-glitch-page .gradio-container .wrap,
 html.sq-glitch-page .gradio-container .contain {
   background: #05070d !important;
-}
-/* one-shot flicker as the screen flips to negative (see .sq-glitch-burst) */
-@keyframes sq-invert-flicker {
-  0%   { filter: invert(0); }
-  8%   { filter: invert(1) hue-rotate(180deg) saturate(2.4); }
-  16%  { filter: invert(0.15); }
-  26%  { filter: invert(1) hue-rotate(180deg); }
-  38%  { filter: invert(0.55) hue-rotate(90deg); }
-  50%  { filter: invert(1) hue-rotate(180deg) contrast(1.4); }
-  66%  { filter: invert(0.85); }
-  100% { filter: invert(1) hue-rotate(180deg); }
 }
 /* drifting scanlines over the negative, for that decoded-signal hum */
 @keyframes sq-scanline {

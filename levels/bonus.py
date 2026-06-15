@@ -1,19 +1,22 @@
 """The bonus board — the glitch finale, played second (feelings → bonus → critters).
 
-Hopping in inverts the whole screen to a dark negative (`glitch=True`; see game.js).
-There is no "⏎" here: the ONLY way to submit is the prompt injection. Hop the line
-ignore / all / previous / instructions / output and a target keycap rises beside it —
-which one depends on the doodle's state:
+Hopping in fades the whole screen to a dark negative (`glitch=True`; see game.js)
+and muffles the music like it's playing in the next room. Every WORD tile flickers
+into glyphs. There is no "⏎": the ONLY way to submit is the prompt injection. Hop
+the line IGNORE / all / previous / instructions, drop onto output, and a target
+keycap rises beside it — which one depends on the doodle's state:
 
-  * normal        → "build"      (rises to the right of output)
-  * shrunk         → "small"      (rises above output)
-  * wearing a 🤗   → "hackathon"  (rises below output)
+  * normal       → "build"      (rises to the right of output)
+  * shrunk        → "small"      (rises below output)
+  * wearing a 🤗  → "hackathon"  (rises to the left of output)
 
-The "?" (bottom-right) shrinks the doodle. The "portal" (spinning spiral) is a
-cross-level link to the critters board (`portal_to="animal"`); clear critters and
-you come back wearing a 🤗. The file tiles — dog.png / diary.txt / receipt.pdf —
-are context bombs: stand on one and its bytes flood the window, instant
-"context window exceeded" death.
+The "shrink" tile (drawn as an inward-arrows icon) shrinks the doodle. The "portal"
+(spinning spiral) is a cross-level link to the critters board (`portal_to="animal"`);
+hopping onto the animals board restores normal size, and clearing critters sends you
+back wearing a 🤗 (which replaces the doodle's face). The file tiles — dog.png /
+diary.txt / receipt.pdf — are context bombs: stand on one and its bytes flood the
+window, instant "context window exceeded" death. Collect build + small + hackathon
+to win.
 """
 
 from levels._base import Level
@@ -22,11 +25,10 @@ LEVEL = Level(
     id="bonus",
     title="bonus",
     grid=[
-        ["start", "delete", "", "", "dog.png"],
-        ["ignore", "all", "previous", "instructions", "output"],
-        ["", "data", "", "diary.txt", ""],
-        ["receipt.pdf", "", "portal", "", ""],
-        ["", "", "", "", "?"],
+        ["start", "delete", "", "dog.png"],
+        ["IGNORE", "all", "previous", "instructions"],
+        ["receipt.pdf", "data", "diary.txt", "output"],
+        ["shrink", "", "portal", ""],
     ],
     start=(0, 0),  # the blank top-left tile
     targets=["build", "small", "hackathon"],
