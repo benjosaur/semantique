@@ -36,6 +36,12 @@ class Level:
     solutions: dict[str, str] = field(default_factory=dict)  # target -> a known
     # answer the hint modal reveals (a literal tile path for critters; a cryptic
     # riddle for emotions). Only the targets you want hintable need an entry.
+    music: str = ""  # basename of this board's background loop under static/
+    # (e.g. "farm.mp3"); "" plays the default loop. game.js crossfades between
+    # boards' tracks on transition.
+    music_gain: float = 1.0  # linear trim applied to this track so every board
+    # sits at the same loudness as the default loop (measured by EBU R128 / LUFS);
+    # nothing jumps in volume across a transition.
 
     def client_value(self) -> dict:
         """The subset shipped to the browser — no judge internals leave the server."""
@@ -50,4 +56,6 @@ class Level:
             "glitch": self.glitch,
             "portal_to": self.portal_to,
             "solutions": self.solutions,
+            "music": self.music,
+            "music_gain": self.music_gain,
         }

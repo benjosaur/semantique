@@ -110,6 +110,21 @@
   // Breadcrumb for the cross-level portal: the board to offer a way back to.
   let returnTo = null;
 
+  // Run-wide tally surfaced on the win screen — the story of the whole session.
+  // Spans every board AND survives the "delete all data" wipe (a crash is itself
+  // a stat), so it is deliberately NEVER reset; only `loadGame`/page reload
+  // starts it over. `startMs` is stamped on the first hop so the clock measures
+  // time spent playing, not time spent reading the welcome card.
+  const stats = {
+    hops: 0,     // every tile-to-tile hop the doodle makes, all boards
+    startMs: 0,  // performance.now() at the first hop; 0 until then
+    hints: 0,    // hint reveals ("yes, show me the hint")
+    crashes: 0,  // "delete all data" 404 wipes triggered
+    wins: 0,     // targets collected (judge wins + the hackathon finale)
+    losses: 0,   // judged sentences that missed their target
+    deaths: 0,   // ran out of hops / face-planted a context bomb
+  };
+
   // Each injection target needs its unlock: "build" is free, "small" needs the
   // shrink, "hackathon" needs the 🤗 earned by clearing critters. `submitPressable`
   // is whether a target's lane tile can be shipped right now (unlocked + unshipped).
@@ -1551,45 +1566,103 @@
     },
   };
 
-  // ---- background music: a looping track on the music bus ----
-  // A single recorded loop (Cipher2) plays under the game via an <audio>
-  // element wired into musicGain, so the mixer's music slider levels and mutes
-  // it exactly like before — the bus, prefs, and gesture-unlock are unchanged.
-  let musicEl = null; // the <audio> element, created on first play
-  let musicSrc = null; // its MediaElementAudioSourceNode (only creatable once)
-  let musicPlay = Promise.resolve(); // the last play() promise, so a quick mute
-  // can wait it out instead of interrupting it (see stopMusic)
+  // ---- background music: per-board loops, crossfaded on transition ----
+  // Each board names its own loop (data.levels[].music — bonus = corporate-glitch,
+  // critters = farm) and a loudness trim (.music_gain); boards without one play
+  // the default loop (data.music, Cipher2). Every track gets its own <audio> +
+  // gain node ("voice") feeding the shared musicGain bus, so the mixer slider,
+  // mute, and the glitch low-pass still level them all together. Switching boards
+  // ramps the outgoing voice to 0 and the incoming up to its trim — a crossfade.
+  const CROSSFADE = 1.4; // seconds; rides under the board drop-in
+  const voices = new Map(); // url -> { el, src, gain, play }
+  let curUrl = null; // the track currently faded up (its <audio> is the one playing)
 
-  // data.music is a "gradio_api/file=…" path. An <audio> already resolves it
-  // against the document, but inside the HF iframe the file route lives under
+  // data.music / level.music are "gradio_api/file=…" paths. An <audio> resolves
+  // them against the document, but inside the HF iframe the file route lives under
   // the Gradio root — so prefer that root when the config exposes it, and fall
   // back to document-relative (correct on localhost and direct embeds).
-  function musicUrl() {
+  function musicUrl(path) {
     const root = (window.gradio_config && window.gradio_config.root) || "";
     const base = root.replace(/\/+$/, "");
-    return base ? base + "/" + data.music : data.music;
+    return base ? base + "/" + path : path;
+  }
+
+  // the track + loudness trim for the active board (its own, else the default)
+  function trackForLevel() {
+    return { url: musicUrl(level.music || data.music), trim: level.music ? (level.music_gain || 1) : 1 };
+  }
+
+  // a voice is lazily built per track; the MediaElementSource can only be made
+  // once per element, so we cache by url and reuse on revisits.
+  function voiceFor(url) {
+    let v = voices.get(url);
+    if (!v) {
+      const el = new Audio(url);
+      el.loop = true;
+      el.preload = "auto";
+      const src = ac.createMediaElementSource(el);
+      const gain = ac.createGain();
+      gain.gain.value = 0; // silent until faded in
+      src.connect(gain).connect(musicGain);
+      v = { el, src, gain, play: Promise.resolve() };
+      voices.set(url, v);
+    }
+    return v;
+  }
+  function playVoice(v) {
+    // play() is gesture-gated; unlockAudio drives the first call from a real tap
+    v.play = v.el.play() || Promise.resolve();
+    v.play.catch(() => {});
+  }
+
+  // Crossfade to `url`: fade its voice up to `trim`, fade the current one down to
+  // 0 and park it. Idempotent if `url` is already current. The bus gain (musicGain)
+  // is multiplied on top, so a muted bus keeps the swap silent.
+  function crossfadeTo(url, trim) {
+    if (!audio() || url === curUrl) return;
+    const prevUrl = curUrl;
+    curUrl = url;
+    const next = voiceFor(url);
+    const t = ac.currentTime;
+    if (musicVol > 0) playVoice(next); // gesture-gated; bus is 0 anyway when muted
+    next.gain.gain.cancelScheduledValues(t);
+    next.gain.gain.setValueAtTime(next.gain.gain.value, t);
+    next.gain.gain.linearRampToValueAtTime(trim, t + CROSSFADE);
+    const prev = prevUrl && voices.get(prevUrl);
+    if (prev) {
+      prev.gain.gain.cancelScheduledValues(t);
+      prev.gain.gain.setValueAtTime(prev.gain.gain.value, t);
+      prev.gain.gain.linearRampToValueAtTime(0, t + CROSSFADE);
+      // park the element once it's silent — unless it became current again. Wait
+      // out its play() first so the pause can't race a pending play (AbortError).
+      gsap.delayedCall(CROSSFADE + 0.1, () => {
+        if (curUrl !== prevUrl) prev.play.then(() => { if (curUrl !== prevUrl) prev.el.pause(); }).catch(() => {});
+      });
+    }
+  }
+
+  // Switch to the active board's track. No-ops until the context exists (boot
+  // runs before any gesture); unlockAudio starts the right track on first tap.
+  function updateMusicTrack() {
+    if (!ac) return;
+    const { url, trim } = trackForLevel();
+    crossfadeTo(url, trim);
   }
 
   function startMusic() {
     if (!audio()) return;
-    if (!musicEl) {
-      musicEl = new Audio(musicUrl());
-      musicEl.loop = true;
-      musicEl.preload = "auto";
-      musicSrc = ac.createMediaElementSource(musicEl);
-      musicSrc.connect(musicGain);
-    }
-    // play() is gesture-gated; unlockAudio drives the first call from a real tap
-    musicPlay = musicEl.play() || Promise.resolve();
-    musicPlay.catch(() => {});
+    const { url, trim } = trackForLevel();
+    if (curUrl === url) playVoice(voiceFor(url)); // unmuting the current track
+    else crossfadeTo(url, trim); // first play, or catch up after a muted swap
   }
   function stopMusic() {
-    if (!musicEl) return;
-    // Pausing while a play() is still pending throws AbortError and can wedge
-    // the element (a fast mute→unmute mid-load would then stay silent). So wait
-    // for the play to settle, then pause only if we still mean to be off —
-    // musicGain is already at 0, so nothing is audible in the meantime anyway.
-    musicPlay.then(() => { if (musicVol === 0 && musicEl) musicEl.pause(); }).catch(() => {});
+    const v = curUrl && voices.get(curUrl);
+    if (!v) return;
+    // Pausing while a play() is still pending throws AbortError and can wedge the
+    // element (a fast mute→unmute mid-load would then stay silent). So wait for the
+    // play to settle, then pause only if we still mean to be off — the bus is
+    // already at 0, so nothing is audible in the meantime anyway.
+    v.play.then(() => { if (musicVol === 0) v.el.pause(); }).catch(() => {});
   }
 
   // ---- audio toggles: hand-drawn ♫ + speaker doodles in the top-right ----
@@ -1889,9 +1962,10 @@
     if (hintsRevealed === 1) return "Really? Again?";
     return "Do you want a hint? Hints are lame.";
   }
-  // Count a revealed clue once per modal open (partial→full in one go still counts 1).
+  // Count a revealed clue once per modal open (partial→full in one go still counts 1):
+  // drives the opener's escalation and the win-screen "hints used" tally alike.
   function markRevealed() {
-    if (!revealedThisOpen) { revealedThisOpen = true; hintsRevealed++; }
+    if (!revealedThisOpen) { revealedThisOpen = true; hintsRevealed++; stats.hints += 1; }
   }
 
   // Paint one step of the modal. controls: "yn" shows yes/no, "ok" a lone "got
@@ -2262,6 +2336,11 @@
   }
 
   function land(r, c) {
+    // every completed hop funnels through here (ground hops, glides, swap +
+    // submit keys), so it's the one place to tally total hops and start the
+    // play clock on the very first one.
+    if (stats.startMs === 0) stats.startMs = performance.now();
+    stats.hops += 1;
     pos = [r, c];
 
     // a swap tile hops you to another board — costs no budget, adds no word.
@@ -2460,6 +2539,7 @@
   // `reason` (a file-bomb dump) flavours the death card; bare die() = ran out of hops.
   let deathReason = null; // { file, dumpLine } | null
   function die(reason) {
+    stats.deaths += 1; // a fail, for the win-screen failure rate
     deathReason = reason || null;
     state = "dead";
     buffered = null;
@@ -2553,6 +2633,7 @@
   // completing the board pops the rainbow victory modal (checkOff → showVictory);
   // collected out of order (build/small still pending), just carry on.
   function winHackathon() {
+    stats.wins += 1; // the guaranteed finale still counts as a target collected
     state = "verdict"; // hold input through the celebration
     buffered = null;
     setPose("hop-mid"); // the win pose
@@ -2656,6 +2737,10 @@
 
   function showVerdict(res) {
     state = "verdict";
+    // a winning verdict always lands a fresh target (we only ever judge against
+    // the still-uncollected ones); anything else is a miss.
+    if (res.verdict === "win") stats.wins += 1;
+    else stats.losses += 1;
     setPose(res.verdict === "win" ? "hop-mid" : "idle");
     hintEl.textContent = "";
 
@@ -2882,12 +2967,49 @@
   // Pops once build + small + hackathon are all collected on the bonus board.
   const victoryEl = element.querySelector(".sq-victory");
   const victoryCloseBtn = element.querySelector(".sq-victory-close");
+  const victoryStatsEl = element.querySelector(".sq-victory-stats");
   let victoryShown = false;
   let victoryOpen = false;
+
+  // mm:ss for the play clock (drops to h:mm:ss past the hour, just in case).
+  function formatDuration(ms) {
+    const total = Math.max(0, Math.round(ms / 1000));
+    const s = total % 60, m = Math.floor(total / 60) % 60, h = Math.floor(total / 3600);
+    const pad = (n) => String(n).padStart(2, "0");
+    return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+  }
+
+  // Tally the run into the victory card: time played, hops, hints, databases
+  // crashed, and the fail count + rate (misses + deaths over every attempt).
+  function renderVictoryStats() {
+    const fails = stats.losses + stats.deaths;
+    const attempts = stats.wins + fails;
+    const rate = attempts ? Math.round((fails / attempts) * 100) : 0;
+    const rows = [
+      ["time", stats.startMs ? formatDuration(performance.now() - stats.startMs) : "0:00"],
+      ["hops", String(stats.hops)],
+      [stats.hints > 0 ? "hints used (seriously..?)" : "hints used", String(stats.hints)],
+      ["databases crashed", String(stats.crashes)],
+      ["fails", `${fails} (${rate}%)`],
+    ];
+    victoryStatsEl.innerHTML = "";
+    for (const [label, value] of rows) {
+      const row = document.createElement("div");
+      row.className = "sq-stat";
+      const dt = document.createElement("dt");
+      dt.textContent = label;
+      const dd = document.createElement("dd");
+      dd.textContent = value;
+      row.append(dt, dd);
+      victoryStatsEl.appendChild(row);
+    }
+  }
+
   function showVictory() {
     if (victoryShown) return;
     victoryShown = true;
     victoryOpen = true;
+    renderVictoryStats();
     // clear the verdict card under it (the last "hackathon!" stamp has landed)
     overlayEl.classList.add("sq-hidden");
     overlayEl.style.opacity = "";
@@ -2922,6 +3044,7 @@
   let errorOpen = false;
 
   function deleteAllData() {
+    stats.crashes += 1; // a database wiped — counted toward the win-screen tally
     state = "verdict"; // freeze the board + input behind the modal
     buffered = null;
     setDataArmed(false); // the line's complete — drop the red
@@ -3157,6 +3280,7 @@
     // leaving the glitch board (e.g. onto critters) returns the doodle to size
     if (!level.glitch && shrunk) { shrunk = false; charGroup.scale.set(1, 1, 1); }
     setGlitchMode(!!level.glitch); // a glitch board inverts the whole screen
+    updateMusicTrack(); // crossfade to this board's loop (no-op before first gesture)
     state = "hopping"; // block input until the poof lands (then -> idle)
     buildTiles();
     buildTargets();

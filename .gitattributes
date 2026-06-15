@@ -1,2 +1,4 @@
 static/Cipher2.mp3 filter=lfs diff=lfs merge=lfs -text
+static/farm.mp3 filter=lfs diff=lfs merge=lfs -text
+static/corporate-glitch.mp3 filter=lfs diff=lfs merge=lfs -text
 docs/*.png filter=lfs diff=lfs merge=lfs -text
