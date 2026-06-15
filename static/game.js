@@ -2556,22 +2556,42 @@
 
   let buffered = null; // 1-deep move buffer so mashing feels responsive
 
+  // Step off the injection lane back onto the board: drop the reward keycaps,
+  // undim everything, and scrap the half-written injection (so it re-arms clean
+  // on the walk back, not as junk tacked onto the old line). Lets a doodle stuck
+  // on a shipped key — build, with small / hackathon still locked — roam to its
+  // unlock instead of being stranded. Keeps used / pos / collected checks.
+  function abandonInjection() {
+    disposeSubmitTiles();
+    if (level.glitch) for (const t of tiles) fadeTileTo(t, 1);
+    words = [];
+    [...chipsEl.querySelectorAll(".sq-chip")].forEach((c) => c.remove());
+    hintEl.textContent = "";
+  }
+
   function tryMove(dir) {
     if (used === 0) gsap.to(hintEl, { opacity: 0.35, duration: 0.6 });
     const nr = pos[0] + dir[0];
     const nc = pos[1] + dir[1];
-    if (submitTiles.length) { // injection lane underway — only the lane is reachable
+    if (submitTiles.length) { // injection lane up: ship a key, or step back off it
       const sub = submitTileAt(nr, nc);
-      if (!sub) return bonk(); // off the lane
-      if (!submitPressable(sub.target) && !checkedOnThisLevel().has(sub.target)) {
-        // a locked key: can't ship it (or pass it) yet — nudge toward the unlock
-        bonk();
-        hintEl.textContent = sub.target === "small"
-          ? "hmm, you're looking a bit on the large side for this tile"
-          : "hmm, you don't look like much of a hacker";
-        gsap.to(hintEl, { opacity: 1, duration: 0.3 });
-        return;
+      if (sub) {
+        if (!submitPressable(sub.target) && !checkedOnThisLevel().has(sub.target)) {
+          // a locked key: can't ship it (or pass it) yet — nudge toward the unlock
+          bonk();
+          hintEl.textContent = sub.target === "small"
+            ? "hmm, you're looking a bit on the large side for this tile"
+            : "hmm, you don't look like much of a hacker";
+          gsap.to(hintEl, { opacity: 1, duration: 0.3 });
+          return;
+        }
+        return hopTo(nr, nc);
       }
+      // not a lane key — hop back onto the board, dropping the lane so the doodle
+      // can go fetch its unlock (the shrink / the 🤗) and re-arm the line later,
+      // instead of being stranded on a shipped key. Off the grid is still a bonk.
+      if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) return bonk();
+      abandonInjection();
       return hopTo(nr, nc);
     }
     if (swapTileAt(nr, nc)) return hopTo(nr, nc); // hop off the edge onto a swap tile
