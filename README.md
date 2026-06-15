@@ -30,9 +30,9 @@ Hop around constructing prompts and see if you can tease out all the target word
 
 ![The opening board: hop the doodle across word tiles and each one adds its word to your sentence for the AI to judge.](docs/original-board.png)
 
-Stick around for the bonus board — a glitched-out finale where the only way to submit is a prompt injection. Spell `delete all data` and the data tile arms red...
+Keep an eye out for Easter eggs to find on your adventure.
 
-![The bonus glitch board with "delete all" written out and the data tile glowing red.](docs/bonus-board.png)
+![An "Error 404" pop-up warning that the AI just deleted everything.](docs/bonus-board.png)
 
 ## Technical Stuff
 
