@@ -1940,11 +1940,13 @@
   }
 
   // As the injection line is written, dim everything that isn't part of it —
-  // more with each step — while the tiles already hopped on stay fully lit.
+  // more with each step — but keep the WHOLE line lit: the words already hopped
+  // AND the ones still ahead (output included), so the path reads forward and
+  // its destination tile never fades out from under you.
   function updateInjectionFade() {
     if (!level.glitch) return;
     const p = injectionProgress();
-    const lit = new Set(injectionCells().slice(0, p)); // the hopped line so far
+    const lit = new Set(injectionCells()); // the whole line — past and future — stays lit
     const dim = p === 0 ? 1 : Math.max(0.12, 1 - p * 0.22); // 0.78 → 0.56 → 0.34 → 0.12
     for (const t of tiles) fadeTileTo(t, lit.has(t.row + "," + t.col) ? 1 : dim);
   }
