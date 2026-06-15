@@ -393,17 +393,17 @@
   function drawShrinkKeyIcon(ctx) {
     ctx.strokeStyle = ACCENT;
     ctx.lineJoin = ctx.lineCap = "round";
-    const c = TILE_PX / 2, out = 92, inn = 34, barb = 26;
+    const c = TILE_PX / 2, out = 96, inn = 30, barb = 30;
     // one inward arrow per corner: shaft from the corner toward the centre,
-    // arrowhead (two barbs) at the inner tip.
+    // arrowhead (two barbs) at the inner tip, splaying back toward the corner.
     for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
       const ox = c + sx * out, oy = c + sy * out;   // outer (corner) end
       const ix = c + sx * inn, iy = c + sy * inn;   // inner tip (toward centre)
       ctx.lineWidth = 15;
       wobblyLine(ctx, ox, oy, ix, iy, 3); ctx.stroke(); // shaft
       ctx.lineWidth = 13;
-      wobblyLine(ctx, ix, iy, ix - sx * barb, iy, 2); ctx.stroke();       // horizontal barb
-      wobblyLine(ctx, ix, iy, ix, iy - sy * barb, 2); ctx.stroke();       // vertical barb
+      wobblyLine(ctx, ix, iy, ix + sx * barb, iy, 2); ctx.stroke();       // horizontal barb
+      wobblyLine(ctx, ix, iy, ix, iy + sy * barb, 2); ctx.stroke();       // vertical barb
     }
   }
 
