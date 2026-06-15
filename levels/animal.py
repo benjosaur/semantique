@@ -17,7 +17,7 @@ LEVEL = Level(
     id="animal",
     title="critters",
     grid=[
-        ["wings", "ouch", "gruff", "⏎"],
+        ["wings", "spicy", "gruff", "⏎"],
         ["silly", "peak", "love", "chill"],
         ["super", "⏎", "slow", "sphere"],
         ["happy", "not", "grumpy", "⏎"],
