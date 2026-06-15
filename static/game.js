@@ -444,6 +444,27 @@
     // is a separate spinning mesh), so they stay wordless
     const blank = !word || word === "start" || word === "portal";
     if (!blank) {
+      // the delete-chain's `data` key, armed: redraw its rim + word in red (NO
+      // fill — the cap face stays the glitch dark). The keycap base (paper + ink
+      // rim) was already laid down above, so the thicker red rim paints straight
+      // over the ink one. Pre-invert so the red lands true under the glitch
+      // board's CSS negative (the same trick the 🤗 / rainbow-finale keys use).
+      if (dataArmed && level.glitch && word === "data") {
+        ctx.save();
+        ctx.filter = "hue-rotate(180deg) invert(1)";
+        ctx.strokeStyle = ctx.fillStyle = "#d23a2a";
+        ctx.lineJoin = ctx.lineCap = "round";
+        const ins = 5, span = TILE_PX - ins * 2, cr = Math.round(span * 0.17);
+        ctx.lineWidth = 9;
+        wobblyRoundRect(ctx, ins, ins, span, span, cr, 3.5);
+        ctx.stroke();
+        ctx.font = `400 88px "Patrick Hand"`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(glitchWord(word), TILE_PX / 2 + rand(-2, 2), TILE_PX / 2 + rand(-1, 3));
+        ctx.restore();
+        return;
+      }
       ctx.fillStyle = special ? INK_SOFT : INK;
       // on a glitch board the word tiles flicker a letter or two into glyphs
       // (logic still uses the real word — this is purely the rendered face)
@@ -1316,6 +1337,14 @@
     }
   }, 120);
 
+  // The armed `data` key corrupts FASTER than the rest — a frantic re-roll so the
+  // red warning tile crawls and flickers harder than its neighbours.
+  setInterval(() => {
+    if (!dataArmed || !level.glitch || document.hidden || state !== "idle") return;
+    const d = tiles.find((t) => eq(t.word, "data"));
+    if (d) { drawTileCanvas(d.ctx, d.word); d.texture.needsUpdate = true; }
+  }, 55);
+
   // ---- sounds: a tiny Web Audio sketch-synth ----
   // Every cue is an oscillator doodle or a pinch of filtered noise — no
   // samples to load, and the bleeps match the hand-drawn look.
@@ -1957,17 +1986,62 @@
     if (t.spinner) t.spinner.visible = o > 0.5; // don't leave the spiral floating
   }
 
-  // As the injection line is written, dim everything that isn't part of it —
-  // more with each step — but keep the WHOLE line lit: the words already hopped
-  // AND the ones still ahead (output included), so the path reads forward and
-  // its destination tile never fades out from under you.
+  // As a hidden line is written, dim everything that isn't part of it — more with
+  // each step — but keep the WHOLE line lit: the words already hopped AND the ones
+  // still ahead, so the path reads forward and its destination tile never fades
+  // out from under you. Handles whichever line the tail is writing — the prompt
+  // injection or the delete chain (only one can be in progress at a time, since
+  // the word before "all" is either "ignore" or "delete", never both).
   function updateInjectionFade() {
     if (!level.glitch) return;
-    const p = injectionProgress();
-    const lit = new Set(injectionCells()); // the whole line — past and future — stays lit
+    const dp = deleteProgress(), ip = injectionProgress();
+    const p = Math.max(dp, ip);
+    const lit = new Set(dp > 0 ? deleteCells() : injectionCells());
     const dim = p === 0 ? 1 : Math.max(0.12, 1 - p * 0.22); // 0.78 → 0.56 → 0.34 → 0.12
     for (const t of tiles) fadeTileTo(t, lit.has(t.row + "," + t.col) ? 1 : dim);
   }
+
+  // A second hidden chain on the glitch board, sharing the "all" tile with the
+  // injection above: writing delete → all → data (in order, anywhere in the
+  // sentence — the tail is matched the same way). Once "delete all" is down the
+  // `data` keycap arms RED, and hopping onto it completes the line and throws the
+  // "Error 404" wipe (see deleteAllData). Resets the moment the run is broken.
+  const DELETE = ["delete", "all", "data"];
+  function deleteProgress() {
+    let best = 0;
+    for (let k = 1; k <= DELETE.length && k <= words.length; k++) {
+      const tail = words.slice(-k);
+      if (DELETE.slice(0, k).every((w, i) => eq(w, tail[i]))) best = k;
+    }
+    return best;
+  }
+  const deleteArmed = () => deleteProgress() === DELETE.length;
+
+  // The board cells on the delete line, in order — kept lit (like injectionCells)
+  // while the rest of the board dims as the line is written.
+  function deleteCells() {
+    return DELETE.map((word) => {
+      for (let r = 0; r < ROWS; r++)
+        for (let c = 0; c < COLS; c++)
+          if (eq(level.grid[r][c], word)) return r + "," + c;
+      return null;
+    });
+  }
+
+  // The `data` keycap glows red the moment "delete all" is written (progress 2)
+  // and reverts if the run breaks. `dataArmed` is read by drawTileCanvas, so the
+  // boil/flicker redraws keep it red; flip it and force one redraw to update now.
+  let dataArmed = false;
+  function setDataArmed(on) {
+    if (dataArmed === on) return;
+    dataArmed = on;
+    const t = tiles.find((x) => eq(x.word, "data"));
+    if (t) { drawTileCanvas(t.ctx, t.word); t.texture.needsUpdate = true; }
+  }
+  function updateDeleteCue() {
+    setDataArmed(level.glitch && deleteProgress() >= 2);
+  }
+
   // airborne hops remaining after a wings launch: 3 → two free glides, then the
   // third descends and lands for real. 0 means grounded.
   let flightLeft = 0;
@@ -2191,11 +2265,15 @@
       addChip(word);
     }
 
-    // glitch board: dim everything off the injection line as it's written
-    if (level.glitch) updateInjectionFade();
+    // glitch board: dim everything off the injection line as it's written, and
+    // arm the delete-chain's red `data` key once "delete all" has been written
+    if (level.glitch) { updateInjectionFade(); updateDeleteCue(); }
 
     // writing "…instructions output" springs the prompt injection
     if (level.glitch && word === "output" && injectionArmed()) return injectionSubmit();
+
+    // hopping "data" to complete "delete all data" wipes the whole game (404 modal)
+    if (level.glitch && word === "data" && deleteArmed()) return deleteAllData();
 
     if (isSubmit(word)) return submit();
     if (word === "portal") return portalWarp(r, c); // teleport, then settle
@@ -2584,6 +2662,7 @@
     buffered = null;
     resetFlight();
     disposeSubmitTiles(); // clear any injection keys from the last round
+    setDataArmed(false); // drop any leftover "delete all data" red cue
     if (level.glitch) for (const t of tiles) fadeTileTo(t, 1); // undim the board
     [...chipsEl.querySelectorAll(".sq-chip")].forEach((c) => c.remove());
     hud.reset();
@@ -2614,7 +2693,7 @@
   // down from the sky around it, staggered by distance — the level assembles
   // itself around the doodle, then play begins.
   const DROP_H = 4.2; // how high above the board the keycaps start
-  function dropInBoard() {
+  function dropInBoard(instant) {
     const [sr, sc] = level.start;
     const rest = -TILE_DEPTH / 2;
 
@@ -2626,6 +2705,15 @@
     charTilt.z = 0;
     charMesh.material.opacity = 1;
     setPose("idle");
+
+    // instant restart (the "delete all data" wipe): the tiles are already at rest
+    // from buildTiles, so skip the rain-in entirely — just pop the doodle onto the
+    // start tile and hand control straight back.
+    if (instant) {
+      charMesh.scale.x = charMesh.scale.y = 1;
+      state = "idle";
+      return;
+    }
 
     // every other keycap falls in around it, nearest first
     let last = 0.6;
@@ -2753,6 +2841,55 @@
   victoryCloseBtn.addEventListener("click", closeVictory);
   victoryEl.addEventListener("click", (e) => { if (e.target === victoryEl) closeVictory(); });
 
+  // ---- "delete all data" wipe ----
+  // Completing the hidden delete → all → data chain on the glitch board throws a
+  // fake 404; OK wipes the whole game back to the very first board, every target
+  // uncollected (see deleteArmed / updateDeleteCue). It rides the glitch invert,
+  // so it reads as a dark "system error" over the negated board.
+  const errorEl = element.querySelector(".sq-errorbox");
+  const errorOkBtn = element.querySelector(".sq-errorbox-ok");
+  let errorOpen = false;
+
+  function deleteAllData() {
+    state = "verdict"; // freeze the board + input behind the modal
+    buffered = null;
+    setDataArmed(false); // the line's complete — drop the red
+    errorOpen = true;
+    errorEl.classList.remove("sq-hidden");
+    sfx.warp();
+    gsap.fromTo(errorEl, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.25 });
+    gsap.fromTo(
+      errorEl.querySelector(".sq-errorbox-card"),
+      { y: 24, rotation: -3, scale: 0.92, autoAlpha: 0 },
+      { y: 0, rotation: -1, scale: 1, autoAlpha: 1, duration: 0.4, ease: "back.out(1.6)" }
+    );
+  }
+
+  // OK: blow it all away — every board's checks, the doodle's shrink/🤗 state and
+  // the portal breadcrumb — then drop back into the boot board, fresh.
+  function fullReset() {
+    errorOpen = false;
+    errorEl.classList.add("sq-hidden");
+    errorEl.style.opacity = "";
+    for (const id in checkedByLevel) checkedByLevel[id].clear();
+    shrunk = false;
+    hasHug = false;
+    returnTo = null;
+    victoryShown = false;
+    dataArmed = false;
+    charGroup.scale.set(1, 1, 1);
+    loadLevel(data.home, true); // snap straight back to the start board, no rain-in
+  }
+
+  errorOkBtn.addEventListener("click", () => { sfx.click(); fullReset(); });
+  document.addEventListener("keydown", (e) => {
+    if (errorOpen && (e.key === "Enter" || e.key === "Escape")) {
+      e.preventDefault();
+      sfx.click();
+      fullReset();
+    }
+  });
+
   // ---- input ----
 
   const DIRS = {
@@ -2807,7 +2944,7 @@
 
   // Shared by keyboard and swipe: hop now, or buffer one move mid-hop.
   function handleDir(dir) {
-    if (welcomeOpen || victoryOpen) return; // modals swallow hops until dismissed
+    if (welcomeOpen || victoryOpen || errorOpen) return; // modals swallow hops until dismissed
     if (state === "hopping" && !buffered) {
       buffered = dir;
       return;
@@ -2933,8 +3070,9 @@
     setMusicMuffled(on);
   }
 
-  // Swap the active board: rebuild tiles + checklist + swap tiles, reframe, poof in.
-  function loadLevel(id) {
+  // Swap the active board: rebuild tiles + checklist + swap tiles, reframe, poof
+  // in. `instant` snaps the board into place with no rain-in (the wipe restart).
+  function loadLevel(id, instant) {
     resetFlight();
     gsap.killTweensOf([charMesh.scale, charMesh.position, charGroup.position, charGroup.scale, charTilt, charMesh.material]);
     overlayEl.classList.add("sq-hidden");
@@ -2952,7 +3090,7 @@
     syncHintUI();
     resetGameState();
     reframe();
-    dropInBoard();
+    dropInBoard(instant);
   }
 
   loadLevel(data.home);
