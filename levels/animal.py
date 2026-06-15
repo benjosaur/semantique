@@ -27,4 +27,16 @@ LEVEL = Level(
     budget=12,
     order=2,  # last: reached from the bonus board through the portal
     home=False,
+    # one known tile path per critter — the hint modal reveals the first 1-2 words
+    # ("one solution starts with…") before escalating to the full sentence.
+    solutions={
+        "whale": "huge slow lump",
+        "otter": "worst spicy gruff love chill",
+        "cat": "slow grumpy",
+        "dog": "not grumpy slow love gruff",
+        "bear": "huge slow grumpy",
+        "owl": "worst spicy gruff",
+        "mouse": "worst love gruff",
+        "cow": "slow huge friend not grumpy",
+    },
 )

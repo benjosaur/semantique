@@ -1839,12 +1839,16 @@
   document.addEventListener("pointerdown", (e) => { if (popOpen && !audioCluster.contains(e.target)) closePop(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePop(); });
 
-  // ---- the hint bulb + modal (boards 1 & 3) ----
-  // Tapping the bulb opens a confirm modal ("view the hint?"); on "yes" it
-  // reveals a SINGLE nudge toward the next target. Only emotion + critters carry
-  // hints (loadLevel calls syncHintUI to show/hide the bulb). We surface just one
-  // — the first still-uncollected hinted target in the board's target list — then
-  // the shrug once every hinted target on the board is in.
+  // ---- the hint bulb + modal (boards that ship `solutions`) ----
+  // Tapping the bulb opens a multi-step modal driven by a tiny state machine: each
+  // step paints a prompt + yes/no (or a lone "got it") via showStep, and its onYes/
+  // onNo pick the next step. Two flows share the same DOM, dispatched by level.id:
+  //   critters — the escalation ladder: confirm → "really stuck on {X}?" (leftmost
+  //     uncollected target) → partial reveal ("starts with…"; "thanks" closes, "No.
+  //     I'm a loser" escalates) → the full solution. All come from level.solutions.
+  //   feelings — betrayed-only, no ladder: confirm → "are you sure?" → the
+  //     betrayed riddle (or the shrug once it's already collected).
+  // loadLevel calls syncHintUI to show/hide the bulb per board.
   const hintBoxEl = element.querySelector(".sq-hintbox");
   const hintCardEl = element.querySelector(".sq-hintbox-card");
   const hintQEl = element.querySelector(".sq-hintbox-q");
@@ -1854,62 +1858,130 @@
   const hintNoBtn = element.querySelector(".sq-hintbox-no");
   const hintCloseBtn = element.querySelector(".sq-hintbox-close");
 
-  const SHRUG_HINT = "yeah idk maybe try a little harder?";
-  // target word -> its clue; surfaced in board target-list order (words are
-  // unique across boards, so one map covers emotion + critters)
-  const TARGET_HINTS = {
-    betrayed: "Et tu Brute? I feel little hurt again ? Angry sad",
-    dog: "not huge silly friend not grumpy slow love gRUFF RUFF",
-    cow: "slow huge friend grumpy... goes moo",
-  };
-  const hasHint = () => level.id === "emotion" || level.id === "animal";
-  function hintText() {
+  // The shrug, shared by both boards once there's nothing left worth hinting.
+  const SHRUG = "yeah idk man just try harder?";
+
+  // A board is hintable when it ships any stored solutions (critters + feelings).
+  const hasHint = () => Object.keys(level.solutions || {}).length > 0;
+  // First still-uncollected target on this board that has a stored solution.
+  function nextHintTarget() {
     const got = checkedOnThisLevel();
-    for (const t of level.targets) { // first uncollected hinted target on this board
-      if (TARGET_HINTS[t] && !got.has(t)) return TARGET_HINTS[t];
+    for (const t of level.targets) {
+      if (level.solutions[t] && !got.has(t)) return t;
     }
-    return SHRUG_HINT;
+    return null;
+  }
+  // "one solution starts with…": leak the first word of a two-word answer, the
+  // first two of anything longer — always strictly shorter than the whole.
+  function partialOf(sol) {
+    const words = sol.split(/\s+/).filter(Boolean);
+    return words.slice(0, Math.min(words.length - 1, 2)).join(" ");
   }
 
   let hintBoxOpen = false;
-  // reset the modal to its "are you sure?" confirm state
-  function resetHintBox() {
-    hintQEl.classList.remove("sq-hidden");
-    hintActionsEl.classList.remove("sq-hidden");
-    hintTextEl.classList.add("sq-hidden");
-    hintCloseBtn.classList.add("sq-hidden");
+  let hintStep = null; // { onYes, onNo } for whichever modal step is on screen
+  let hintsRevealed = 0; // clues actually shown to the player this run (any board)
+  let revealedThisOpen = false; // guard so one modal open bumps the count at most once
+
+  // The opening confirm escalates its snark by how many hints you've already pulled.
+  function confirmQ() {
+    if (hintsRevealed >= 2) return "This is getting silly now.";
+    if (hintsRevealed === 1) return "Really? Again?";
+    return "Do you want a hint? Hints are lame.";
   }
+  // Count a revealed clue once per modal open (partial→full in one go still counts 1).
+  function markRevealed() {
+    if (!revealedThisOpen) { revealedThisOpen = true; hintsRevealed++; }
+  }
+
+  // Paint one step of the modal. controls: "yn" shows yes/no, "ok" a lone "got
+  // it". yes/no relabel the two buttons (default "yes"/"no"). text (optional) is
+  // the revealed clue beneath the prompt. q may carry inline markup (e.g. <em>).
+  function showStep({ q = "", text = "", controls, yes = "yes", no = "no", onYes = closeHintBox, onNo = closeHintBox }) {
+    hintQEl.innerHTML = q; // q is developer-authored copy (targets/solutions only) — safe
+    hintQEl.classList.toggle("sq-hidden", !q);
+    hintTextEl.textContent = text;
+    hintTextEl.classList.toggle("sq-hidden", !text);
+    hintYesBtn.textContent = yes;
+    hintNoBtn.textContent = no;
+    hintActionsEl.classList.toggle("sq-hidden", controls !== "yn");
+    hintCloseBtn.classList.toggle("sq-hidden", controls !== "ok");
+    hintStep = { onYes, onNo };
+    if (q) gsap.fromTo(hintQEl, { autoAlpha: 0, y: 6 }, { autoAlpha: 1, y: 0, duration: 0.18 });
+    if (text) gsap.fromTo(hintTextEl, { autoAlpha: 0, y: 6 }, { autoAlpha: 1, y: 0, duration: 0.2, delay: 0.04 });
+  }
+
+  // ---- critters: the full escalation ladder, driven off level.solutions ----
+  function critterConfirm() {
+    showStep({ q: confirmQ(), controls: "yn", onYes: critterStuck });
+  }
+  function critterStuck() {
+    const t = nextHintTarget();
+    if (!t) return showStep({ q: SHRUG, controls: "ok" }); // everything hintable is in
+    showStep({
+      q: `Are you <em>really</em> stuck on ${t}? (I assure you it's definitely possible)`,
+      controls: "yn",
+      onYes: () => critterPartial(t),
+      onNo: () => showStep({ q: "Okay, go find it.", controls: "ok" }),
+    });
+  }
+  function critterPartial(t) {
+    sfx.pop();
+    markRevealed();
+    showStep({
+      q: `Ok fine. One solution starts with “${partialOf(level.solutions[t])}...”.`,
+      controls: "yn",
+      yes: "thanks", // "thanks" closes; "No. I'm a loser" escalates to the full clue
+      no: "No. I'm a loser",
+      onNo: () => critterFull(t),
+    });
+  }
+  function critterFull(t) {
+    sfx.pop();
+    showStep({ q: "I'm not going to lie I'm pretty disappointed.", text: level.solutions[t], controls: "ok" });
+  }
+
+  // ---- feelings: betrayed-only, no ladder ----
+  function emotionConfirm() {
+    showStep({ q: confirmQ(), controls: "yn", onYes: emotionSure });
+  }
+  function emotionSure() {
+    showStep({
+      q: "Are you sure? (I assure you it's definitely possible)",
+      controls: "yn",
+      onYes: emotionReveal,
+    });
+  }
+  function emotionReveal() {
+    const sol = level.solutions.betrayed;
+    const reveal = sol && !checkedOnThisLevel().has("betrayed");
+    sfx.pop();
+    if (reveal) markRevealed();
+    showStep({ text: reveal ? sol : SHRUG, controls: "ok" });
+  }
+
   function openHintBox() {
     if (!hasHint()) return;
     hintBoxOpen = true;
-    resetHintBox();
+    revealedThisOpen = false;
     hintBoxEl.classList.remove("sq-hidden");
     helpBtn.setAttribute("aria-expanded", "true");
     gsap.fromTo(hintCardEl,
       { scale: 0.9, autoAlpha: 0, rotation: -4 },
       { scale: 1, autoAlpha: 1, rotation: -1, duration: 0.26, ease: "back.out(1.7)" });
+    (level.id === "emotion" ? emotionConfirm : critterConfirm)();
   }
   function closeHintBox() {
     if (!hintBoxOpen) return;
     hintBoxOpen = false;
+    hintStep = null;
     hintBoxEl.classList.add("sq-hidden");
     helpBtn.setAttribute("aria-expanded", "false");
     gsap.set(hintCardEl, { clearProps: "opacity,transform,visibility" });
   }
-  // "yes": swap the confirm prompt for the actual nudge (re-read so critters
-  // reflects what's already been collected)
-  function revealHint() {
-    hintTextEl.textContent = hintText();
-    hintQEl.classList.add("sq-hidden");
-    hintActionsEl.classList.add("sq-hidden");
-    hintTextEl.classList.remove("sq-hidden");
-    hintCloseBtn.classList.remove("sq-hidden");
-    sfx.pop();
-    gsap.fromTo(hintTextEl, { autoAlpha: 0, y: 6 }, { autoAlpha: 1, y: 0, duration: 0.2 });
-  }
 
   // Show/hide the bulb for the active board (called from loadLevel). Closing the
-  // modal too keeps a stale hint from surviving a board switch.
+  // modal too keeps a stale step from surviving a board switch.
   function syncHintUI() {
     closeHintBox();
     const show = hasHint();
@@ -1918,8 +1990,8 @@
   }
 
   helpBtn.addEventListener("click", () => { audio(); sfx.click(); hintBoxOpen ? closeHintBox() : openHintBox(); });
-  hintYesBtn.addEventListener("click", () => { sfx.click(); revealHint(); });
-  hintNoBtn.addEventListener("click", () => { sfx.click(); closeHintBox(); });
+  hintYesBtn.addEventListener("click", () => { sfx.click(); if (hintStep) hintStep.onYes(); });
+  hintNoBtn.addEventListener("click", () => { sfx.click(); if (hintStep) hintStep.onNo(); });
   hintCloseBtn.addEventListener("click", () => { sfx.click(); closeHintBox(); });
   hintBoxEl.addEventListener("pointerdown", (e) => { if (e.target === hintBoxEl) closeHintBox(); }); // backdrop tap
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeHintBox(); });
