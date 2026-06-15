@@ -33,6 +33,12 @@ class Level:
     # negative; "?" becomes a shrink key and file tiles blow the context (see game.js)
     portal_to: str = ""  # if set, this board's portal tiles are a cross-level
     # link to that level id (instead of an in-board teleport)
+    music: str = ""  # basename of this board's background loop under static/
+    # (e.g. "farm.mp3"); "" plays the default loop. game.js crossfades between
+    # boards' tracks on transition.
+    music_gain: float = 1.0  # linear trim applied to this track so every board
+    # sits at the same loudness as the default loop (measured by EBU R128 / LUFS);
+    # nothing jumps in volume across a transition.
 
     def client_value(self) -> dict:
         """The subset shipped to the browser — no judge internals leave the server."""
@@ -46,4 +52,6 @@ class Level:
             "budget": self.budget,
             "glitch": self.glitch,
             "portal_to": self.portal_to,
+            "music": self.music,
+            "music_gain": self.music_gain,
         }

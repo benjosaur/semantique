@@ -19,15 +19,31 @@ _SCRATCH = base64.b64encode((STATIC / "pencil-scratch.mp3").read_bytes()).decode
 # root so it still holds up inside the HF Spaces iframe.
 gr.set_static_paths(paths=[STATIC])
 
+# A static file streamed via the Gradio file route. game.js resolves the URL
+# against the Gradio root so it still holds up inside the HF Spaces iframe.
+def _file_route(name: str) -> str:
+    return "gradio_api/file=" + str(STATIC / name)
+
+
+# Each board may name its own background loop (Level.music, a static/ basename);
+# resolve those to file-route URLs here so the Level data stays path-agnostic.
+# Boards without one play the default loop (Cipher2). game.js crossfades between
+# tracks on transition; per-board music_gain keeps them at a matched loudness.
+def _level_client(lid: str) -> dict:
+    cv = LEVELS[lid].client_value()
+    cv["music"] = _file_route(cv["music"]) if cv["music"] else ""
+    return cv
+
+
 # Everything the board needs to render and switch levels client-side: the play
 # order, the boot board, each level's client-facing slice, the pen-scratch
-# sample (data URI), and the looping background-music URL (file route).
+# sample (data URI), and the default looping background-music URL (file route).
 GAME = {
-    "levels": [LEVELS[lid].client_value() for lid in LEVEL_ORDER],
+    "levels": [_level_client(lid) for lid in LEVEL_ORDER],
     "order": LEVEL_ORDER,
     "home": HOME_ID,
     "scratchAudio": "data:audio/mpeg;base64," + _SCRATCH,
-    "music": "gradio_api/file=" + str(STATIC / "Cipher2.mp3"),
+    "music": _file_route("Cipher2.mp3"),
 }
 
 HEAD = """

@@ -37,4 +37,6 @@ LEVEL = Level(
     order=1,  # second board: feelings → bonus → critters (via the portal)
     glitch=True,
     portal_to="animal",  # the spiral whisks you to the critters board and back
+    music="corporate-glitch.mp3",  # the glitchy corporate sting for the finale
+    music_gain=0.349,  # trim to match Cipher2's loudness (track is ~9 LUFS hotter)
 )

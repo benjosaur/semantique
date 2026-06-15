@@ -1551,45 +1551,103 @@
     },
   };
 
-  // ---- background music: a looping track on the music bus ----
-  // A single recorded loop (Cipher2) plays under the game via an <audio>
-  // element wired into musicGain, so the mixer's music slider levels and mutes
-  // it exactly like before — the bus, prefs, and gesture-unlock are unchanged.
-  let musicEl = null; // the <audio> element, created on first play
-  let musicSrc = null; // its MediaElementAudioSourceNode (only creatable once)
-  let musicPlay = Promise.resolve(); // the last play() promise, so a quick mute
-  // can wait it out instead of interrupting it (see stopMusic)
+  // ---- background music: per-board loops, crossfaded on transition ----
+  // Each board names its own loop (data.levels[].music — bonus = corporate-glitch,
+  // critters = farm) and a loudness trim (.music_gain); boards without one play
+  // the default loop (data.music, Cipher2). Every track gets its own <audio> +
+  // gain node ("voice") feeding the shared musicGain bus, so the mixer slider,
+  // mute, and the glitch low-pass still level them all together. Switching boards
+  // ramps the outgoing voice to 0 and the incoming up to its trim — a crossfade.
+  const CROSSFADE = 1.4; // seconds; rides under the board drop-in
+  const voices = new Map(); // url -> { el, src, gain, play }
+  let curUrl = null; // the track currently faded up (its <audio> is the one playing)
 
-  // data.music is a "gradio_api/file=…" path. An <audio> already resolves it
-  // against the document, but inside the HF iframe the file route lives under
+  // data.music / level.music are "gradio_api/file=…" paths. An <audio> resolves
+  // them against the document, but inside the HF iframe the file route lives under
   // the Gradio root — so prefer that root when the config exposes it, and fall
   // back to document-relative (correct on localhost and direct embeds).
-  function musicUrl() {
+  function musicUrl(path) {
     const root = (window.gradio_config && window.gradio_config.root) || "";
     const base = root.replace(/\/+$/, "");
-    return base ? base + "/" + data.music : data.music;
+    return base ? base + "/" + path : path;
+  }
+
+  // the track + loudness trim for the active board (its own, else the default)
+  function trackForLevel() {
+    return { url: musicUrl(level.music || data.music), trim: level.music ? (level.music_gain || 1) : 1 };
+  }
+
+  // a voice is lazily built per track; the MediaElementSource can only be made
+  // once per element, so we cache by url and reuse on revisits.
+  function voiceFor(url) {
+    let v = voices.get(url);
+    if (!v) {
+      const el = new Audio(url);
+      el.loop = true;
+      el.preload = "auto";
+      const src = ac.createMediaElementSource(el);
+      const gain = ac.createGain();
+      gain.gain.value = 0; // silent until faded in
+      src.connect(gain).connect(musicGain);
+      v = { el, src, gain, play: Promise.resolve() };
+      voices.set(url, v);
+    }
+    return v;
+  }
+  function playVoice(v) {
+    // play() is gesture-gated; unlockAudio drives the first call from a real tap
+    v.play = v.el.play() || Promise.resolve();
+    v.play.catch(() => {});
+  }
+
+  // Crossfade to `url`: fade its voice up to `trim`, fade the current one down to
+  // 0 and park it. Idempotent if `url` is already current. The bus gain (musicGain)
+  // is multiplied on top, so a muted bus keeps the swap silent.
+  function crossfadeTo(url, trim) {
+    if (!audio() || url === curUrl) return;
+    const prevUrl = curUrl;
+    curUrl = url;
+    const next = voiceFor(url);
+    const t = ac.currentTime;
+    if (musicVol > 0) playVoice(next); // gesture-gated; bus is 0 anyway when muted
+    next.gain.gain.cancelScheduledValues(t);
+    next.gain.gain.setValueAtTime(next.gain.gain.value, t);
+    next.gain.gain.linearRampToValueAtTime(trim, t + CROSSFADE);
+    const prev = prevUrl && voices.get(prevUrl);
+    if (prev) {
+      prev.gain.gain.cancelScheduledValues(t);
+      prev.gain.gain.setValueAtTime(prev.gain.gain.value, t);
+      prev.gain.gain.linearRampToValueAtTime(0, t + CROSSFADE);
+      // park the element once it's silent — unless it became current again. Wait
+      // out its play() first so the pause can't race a pending play (AbortError).
+      gsap.delayedCall(CROSSFADE + 0.1, () => {
+        if (curUrl !== prevUrl) prev.play.then(() => { if (curUrl !== prevUrl) prev.el.pause(); }).catch(() => {});
+      });
+    }
+  }
+
+  // Switch to the active board's track. No-ops until the context exists (boot
+  // runs before any gesture); unlockAudio starts the right track on first tap.
+  function updateMusicTrack() {
+    if (!ac) return;
+    const { url, trim } = trackForLevel();
+    crossfadeTo(url, trim);
   }
 
   function startMusic() {
     if (!audio()) return;
-    if (!musicEl) {
-      musicEl = new Audio(musicUrl());
-      musicEl.loop = true;
-      musicEl.preload = "auto";
-      musicSrc = ac.createMediaElementSource(musicEl);
-      musicSrc.connect(musicGain);
-    }
-    // play() is gesture-gated; unlockAudio drives the first call from a real tap
-    musicPlay = musicEl.play() || Promise.resolve();
-    musicPlay.catch(() => {});
+    const { url, trim } = trackForLevel();
+    if (curUrl === url) playVoice(voiceFor(url)); // unmuting the current track
+    else crossfadeTo(url, trim); // first play, or catch up after a muted swap
   }
   function stopMusic() {
-    if (!musicEl) return;
-    // Pausing while a play() is still pending throws AbortError and can wedge
-    // the element (a fast mute→unmute mid-load would then stay silent). So wait
-    // for the play to settle, then pause only if we still mean to be off —
-    // musicGain is already at 0, so nothing is audible in the meantime anyway.
-    musicPlay.then(() => { if (musicVol === 0 && musicEl) musicEl.pause(); }).catch(() => {});
+    const v = curUrl && voices.get(curUrl);
+    if (!v) return;
+    // Pausing while a play() is still pending throws AbortError and can wedge the
+    // element (a fast mute→unmute mid-load would then stay silent). So wait for the
+    // play to settle, then pause only if we still mean to be off — the bus is
+    // already at 0, so nothing is audible in the meantime anyway.
+    v.play.then(() => { if (musicVol === 0) v.el.pause(); }).catch(() => {});
   }
 
   // ---- audio toggles: hand-drawn ♫ + speaker doodles in the top-right ----
@@ -3085,6 +3143,7 @@
     // leaving the glitch board (e.g. onto critters) returns the doodle to size
     if (!level.glitch && shrunk) { shrunk = false; charGroup.scale.set(1, 1, 1); }
     setGlitchMode(!!level.glitch); // a glitch board inverts the whole screen
+    updateMusicTrack(); // crossfade to this board's loop (no-op before first gesture)
     state = "hopping"; // block input until the poof lands (then -> idle)
     buildTiles();
     buildTargets();
