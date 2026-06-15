@@ -25,6 +25,6 @@ LEVEL = Level(
     targets=["whale", "otter", "cat", "dog", "bear", "owl", "mouse", "cow"],
     labels=["whale", "otter", "cat", "dog", "bear", "owl", "mouse", "cow"],
     budget=12,
-    order=0,
-    home=True,
+    order=2,  # last: reached from the bonus board through the portal
+    home=False,
 )
