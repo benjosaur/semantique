@@ -15,7 +15,7 @@ Grid words are plain strings, with four reserved values:
 A board may have several "⏎" tiles; every other cell appends its word.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -33,6 +33,9 @@ class Level:
     # negative; "?" becomes a shrink key and file tiles blow the context (see game.js)
     portal_to: str = ""  # if set, this board's portal tiles are a cross-level
     # link to that level id (instead of an in-board teleport)
+    solutions: dict[str, str] = field(default_factory=dict)  # target -> a known
+    # answer the hint modal reveals (a literal tile path for critters; a cryptic
+    # riddle for emotions). Only the targets you want hintable need an entry.
     music: str = ""  # basename of this board's background loop under static/
     # (e.g. "farm.mp3"); "" plays the default loop. game.js crossfades between
     # boards' tracks on transition.
@@ -52,6 +55,7 @@ class Level:
             "budget": self.budget,
             "glitch": self.glitch,
             "portal_to": self.portal_to,
+            "solutions": self.solutions,
             "music": self.music,
             "music_gain": self.music_gain,
         }

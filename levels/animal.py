@@ -27,6 +27,18 @@ LEVEL = Level(
     budget=12,
     order=2,  # last: reached from the bonus board through the portal
     home=False,
+    # one known tile path per critter — the hint modal reveals the first 1-2 words
+    # ("one solution starts with…") before escalating to the full sentence.
+    solutions={
+        "whale": "huge slow lump",
+        "otter": "worst spicy gruff love chill",
+        "cat": "slow grumpy",
+        "dog": "not grumpy slow love gruff",
+        "bear": "huge slow grumpy",
+        "owl": "worst spicy gruff",
+        "mouse": "worst love gruff",
+        "cow": "slow huge friend not grumpy",
+    },
     music="farm.mp3",  # sweet-country-farm loop, fits the critters
     music_gain=0.365,  # trim to match Cipher2's loudness (track is ~9 LUFS hotter)
 )

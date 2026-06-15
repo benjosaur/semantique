@@ -23,4 +23,7 @@ LEVEL = Level(
     budget=10,
     order=0,  # the boot board; progression is feelings → bonus → critters
     home=True,
+    # only "betrayed" is hintable here — its cryptic riddle (the modal slays him
+    # à la Et tu Brute); every other feeling you're on your own. See game.js.
+    solutions={"betrayed": "Et tu Brute? I feel little hurt again ? Angry sad"},
 )
