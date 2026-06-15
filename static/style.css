@@ -645,6 +645,57 @@
 }
 .sq-victory-close:hover { background: var(--ink); color: var(--paper); }
 
+/* The "delete all data" 404. Sits above every other modal; like the victory card
+   it inherits the glitch invert (it only ever fires on the bonus board), reading
+   as a dark system-error dialog over the negated screen. */
+.sq-errorbox {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(250, 248, 242, 0.82);
+  z-index: 7; /* top of the stack — above the win modal (6) */
+}
+.sq-errorbox-card {
+  position: relative;
+  width: min(440px, 86vw);
+  padding: 30px 30px 26px;
+  background: #fffdf7;
+  border: 3px solid var(--ink);
+  border-radius: 235px 20px 245px 18px / 18px 245px 20px 235px;
+  box-shadow: 5px 6px 0 rgba(28, 27, 24, 0.14);
+  transform: rotate(-1deg);
+  text-align: center;
+}
+.sq-errorbox-title {
+  font-family: "Caveat", cursive;
+  font-size: 42px;
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--ink);
+  margin-bottom: 12px;
+}
+.sq-errorbox-body {
+  font-family: "Patrick Hand", cursive;
+  font-size: 21px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  margin-bottom: 22px;
+}
+.sq-errorbox-ok {
+  font-family: "Patrick Hand", cursive;
+  font-size: 21px;
+  color: var(--ink);
+  background: transparent;
+  border: 2.5px solid var(--ink);
+  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+  padding: 5px 30px 7px;
+  cursor: pointer;
+  transform: rotate(0.6deg);
+}
+.sq-errorbox-ok:hover { background: var(--ink); color: var(--paper); }
+
 .sq-hidden { display: none !important; }
 
 /* ---- glitch / bonus mode ---- */
@@ -715,4 +766,8 @@
   .sq-welcome-title { font-size: 32px; }
   .sq-welcome-body { font-size: 18px; margin-bottom: 20px; }
   .sq-welcome-close { width: 56px; height: 56px; font-size: 34px; }
+
+  .sq-errorbox-card { width: min(380px, 88vw); padding: 24px 22px 22px; }
+  .sq-errorbox-title { font-size: 36px; margin-bottom: 10px; }
+  .sq-errorbox-body { font-size: 18px; margin-bottom: 18px; }
 }
