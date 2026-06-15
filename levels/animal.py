@@ -20,7 +20,7 @@ LEVEL = Level(
         ["wings", "spicy", "gruff", "⏎"],
         ["silly", "peak", "love", "chill"],
         ["super", "⏎", "slow", "sphere"],
-        ["happy", "not", "grumpy", "⏎"],
+        ["massive", "not", "grumpy", "⏎"],
     ],
     start=(2, 1),  # the central submit key — you start on it, it doesn't fire
     targets=["whale", "otter", "cat", "dog", "bear", "owl", "mouse", "lion", "cow"],
