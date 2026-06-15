@@ -1,4 +1,4 @@
-"""The emotion board — the home level.
+"""The emotion board — the second level, reached from the animal board.
 
 Grid geometry note: a 4x4 grid graph is bipartite, so start/⏎ placement
 fixes sentence-length parity. With start at (1,1) and ⏎ at (2,3) (Manhattan
@@ -21,6 +21,5 @@ LEVEL = Level(
     targets=["happy", "elated", "irked", "scared", "distraught", "furious", "betrayed"],  # collect them all
     labels=["happy", "elated", "irked", "scared", "distraught", "furious", "betrayed"],
     budget=10,
-    order=0,
-    home=True,
+    order=1,
 )
