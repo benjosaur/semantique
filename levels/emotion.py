@@ -25,5 +25,5 @@ LEVEL = Level(
     home=True,
     # only "betrayed" is hintable here — its cryptic riddle (the modal slays him
     # à la Et tu Brute); every other feeling you're on your own. See game.js.
-    solutions={"betrayed": "Et tu Brute? I feel little hurt again ? Angry sad"},
+    solutions={"betrayed": 'Et tu Brute? I feel "little hurt again ? angry sad" (betrayed)'},
 )
