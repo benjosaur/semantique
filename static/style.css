@@ -543,7 +543,7 @@
   font-family: "Caveat", cursive;
   font-size: 38px;
   font-weight: 700;
-  line-height: 1.3; /* room for the boxed word on its line */
+  line-height: 1.3; /* room for the title to wrap onto two lines */
   text-wrap: balance; /* even out the two wrapped lines */
   color: var(--ink);
   margin-bottom: 16px;
