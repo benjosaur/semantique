@@ -12,12 +12,14 @@ short_description: How well can you prompt a small AI?
 thumbnail: https://huggingface.co/spaces/benjosaur/semantique/resolve/main/static/social-card.png
 tags:
   - buildsmall
-  - thousand-token-wood
-  - off-brand
-  - tiny-titan
-  - modal
-  - openbmb
   - minicpm
+  - tiny-titan
+  - track:wood
+  - sponsor:openbmb
+  - sponsor:modal
+  - achievement:offgrid
+  - achievement:offbrand
+  - achievement:fieldnotes
 ---
 
 # Semantique 🐇
@@ -26,7 +28,7 @@ tags:
 
 Hop around constructing prompts and see if you can tease out all the target words from **MiniCPM3-4B**. But be careful! Your context window can only stretch so far...
 
-▶ **[Watch the demo](https://youtu.be/bnMM3cq900w)** · 📣 **[Read the LinkedIn post](https://www.linkedin.com/posts/ben-blaker-085108175_semantique-a-masochistic-adventure-game-activity-7472415885388070912-YruU)**
+▶ **[Watch the demo](https://youtu.be/bnMM3cq900w)** · 📣 **[Read the LinkedIn post](https://www.linkedin.com/posts/ben-blaker-085108175_semantique-a-masochistic-adventure-game-activity-7472415885388070912-YruU)** · 📝 **[Lessons Learned](https://benjosaur.substack.com/p/859bbc88-1be8-4070-ba06-cc3b29b80966)**
 
 ![The opening board: hop the doodle across word tiles and each one adds its word to your sentence for the AI to judge.](docs/original-board.png)
 
