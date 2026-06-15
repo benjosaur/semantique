@@ -22,8 +22,8 @@ LEVEL = Level(
         ["friend", "not", "grumpy", "⏎"],
     ],
     start=(2, 1),  # the blank central home tile
-    targets=["whale", "otter", "cat", "dog", "bear", "owl", "mouse", "lion", "cow"],
-    labels=["whale", "otter", "cat", "dog", "bear", "owl", "mouse", "lion", "cow"],
+    targets=["whale", "otter", "cat", "dog", "bear", "owl", "mouse", "cow"],
+    labels=["whale", "otter", "cat", "dog", "bear", "owl", "mouse", "cow"],
     budget=12,
     order=0,
     home=True,
