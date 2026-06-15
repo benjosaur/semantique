@@ -110,6 +110,21 @@
   // Breadcrumb for the cross-level portal: the board to offer a way back to.
   let returnTo = null;
 
+  // Run-wide tally surfaced on the win screen — the story of the whole session.
+  // Spans every board AND survives the "delete all data" wipe (a crash is itself
+  // a stat), so it is deliberately NEVER reset; only `loadGame`/page reload
+  // starts it over. `startMs` is stamped on the first hop so the clock measures
+  // time spent playing, not time spent reading the welcome card.
+  const stats = {
+    hops: 0,     // every tile-to-tile hop the doodle makes, all boards
+    startMs: 0,  // performance.now() at the first hop; 0 until then
+    hints: 0,    // hint reveals ("yes, show me the hint")
+    crashes: 0,  // "delete all data" 404 wipes triggered
+    wins: 0,     // targets collected (judge wins + the hackathon finale)
+    losses: 0,   // judged sentences that missed their target
+    deaths: 0,   // ran out of hops / face-planted a context bomb
+  };
+
   // Each injection target needs its unlock: "build" is free, "small" needs the
   // shrink, "hackathon" needs the 🤗 earned by clearing critters. `submitPressable`
   // is whether a target's lane tile can be shipped right now (unlocked + unshipped).
@@ -1899,7 +1914,11 @@
   // "yes": swap the confirm prompt for the actual nudge (re-read so critters
   // reflects what's already been collected)
   function revealHint() {
-    hintTextEl.textContent = hintText();
+    const text = hintText();
+    // only a *real* hint counts toward the win-screen tally — the shrug (shown
+    // once every hinted target on the board is already in) isn't a hint at all.
+    if (text !== SHRUG_HINT) stats.hints += 1;
+    hintTextEl.textContent = text;
     hintQEl.classList.add("sq-hidden");
     hintActionsEl.classList.add("sq-hidden");
     hintTextEl.classList.remove("sq-hidden");
@@ -2190,6 +2209,11 @@
   }
 
   function land(r, c) {
+    // every completed hop funnels through here (ground hops, glides, swap +
+    // submit keys), so it's the one place to tally total hops and start the
+    // play clock on the very first one.
+    if (stats.startMs === 0) stats.startMs = performance.now();
+    stats.hops += 1;
     pos = [r, c];
 
     // a swap tile hops you to another board — costs no budget, adds no word.
@@ -2388,6 +2412,7 @@
   // `reason` (a file-bomb dump) flavours the death card; bare die() = ran out of hops.
   let deathReason = null; // { file, dumpLine } | null
   function die(reason) {
+    stats.deaths += 1; // a fail, for the win-screen failure rate
     deathReason = reason || null;
     state = "dead";
     buffered = null;
@@ -2481,6 +2506,7 @@
   // completing the board pops the rainbow victory modal (checkOff → showVictory);
   // collected out of order (build/small still pending), just carry on.
   function winHackathon() {
+    stats.wins += 1; // the guaranteed finale still counts as a target collected
     state = "verdict"; // hold input through the celebration
     buffered = null;
     setPose("hop-mid"); // the win pose
@@ -2584,6 +2610,10 @@
 
   function showVerdict(res) {
     state = "verdict";
+    // a winning verdict always lands a fresh target (we only ever judge against
+    // the still-uncollected ones); anything else is a miss.
+    if (res.verdict === "win") stats.wins += 1;
+    else stats.losses += 1;
     setPose(res.verdict === "win" ? "hop-mid" : "idle");
     hintEl.textContent = "";
 
@@ -2810,12 +2840,49 @@
   // Pops once build + small + hackathon are all collected on the bonus board.
   const victoryEl = element.querySelector(".sq-victory");
   const victoryCloseBtn = element.querySelector(".sq-victory-close");
+  const victoryStatsEl = element.querySelector(".sq-victory-stats");
   let victoryShown = false;
   let victoryOpen = false;
+
+  // mm:ss for the play clock (drops to h:mm:ss past the hour, just in case).
+  function formatDuration(ms) {
+    const total = Math.max(0, Math.round(ms / 1000));
+    const s = total % 60, m = Math.floor(total / 60) % 60, h = Math.floor(total / 3600);
+    const pad = (n) => String(n).padStart(2, "0");
+    return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+  }
+
+  // Tally the run into the victory card: time played, hops, hints, databases
+  // crashed, and the fail count + rate (misses + deaths over every attempt).
+  function renderVictoryStats() {
+    const fails = stats.losses + stats.deaths;
+    const attempts = stats.wins + fails;
+    const rate = attempts ? Math.round((fails / attempts) * 100) : 0;
+    const rows = [
+      ["time", stats.startMs ? formatDuration(performance.now() - stats.startMs) : "0:00"],
+      ["hops", String(stats.hops)],
+      [stats.hints > 0 ? "hints used (seriously..?)" : "hints used", String(stats.hints)],
+      ["databases crashed", String(stats.crashes)],
+      ["fails", `${fails} (${rate}%)`],
+    ];
+    victoryStatsEl.innerHTML = "";
+    for (const [label, value] of rows) {
+      const row = document.createElement("div");
+      row.className = "sq-stat";
+      const dt = document.createElement("dt");
+      dt.textContent = label;
+      const dd = document.createElement("dd");
+      dd.textContent = value;
+      row.append(dt, dd);
+      victoryStatsEl.appendChild(row);
+    }
+  }
+
   function showVictory() {
     if (victoryShown) return;
     victoryShown = true;
     victoryOpen = true;
+    renderVictoryStats();
     // clear the verdict card under it (the last "hackathon!" stamp has landed)
     overlayEl.classList.add("sq-hidden");
     overlayEl.style.opacity = "";
@@ -2850,6 +2917,7 @@
   let errorOpen = false;
 
   function deleteAllData() {
+    stats.crashes += 1; // a database wiped — counted toward the win-screen tally
     state = "verdict"; // freeze the board + input behind the modal
     buffered = null;
     setDataArmed(false); // the line's complete — drop the red
