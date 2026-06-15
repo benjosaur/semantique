@@ -93,6 +93,8 @@
   // A "file" tile (name.ext) is a context bomb: stand on it and its bytes flood
   // the window — instant "context window exceeded" death (see fileDeath).
   const isFile = (w) => /\.[a-z0-9]{2,4}$/i.test(w);
+  // An image file (dog.png and friends) gets a photo glyph instead of ruled text.
+  const isImageFile = (w) => /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(w);
 
   // A grid cell appends its word unless it's structural (start / blank / ⏎ /
   // wings / portal / shift) or a special glitch tile (shrink / file bomb).
@@ -373,12 +375,29 @@
     ctx.lineTo(px + pw - fold, py + fold);
     ctx.lineTo(px + pw, py + fold);
     ctx.stroke();
-    ctx.strokeStyle = INK_SOFT; // ruled text lines on the page
-    ctx.lineWidth = 4;
-    for (let i = 0; i < 4; i++) {
-      const yy = py + 52 + i * 18;
-      wobblyLine(ctx, px + 16, yy, px + pw - 16, yy, 1.4);
+    if (isImageFile(name)) {
+      // an image file: a framed photo — sun over two mountains — so dog.png
+      // reads as a picture, not a text document.
+      ctx.strokeStyle = INK_SOFT;
+      const fx = px + 14, fy = py + 16, fw = pw - 28, fh = ph - 30, base = fy + fh;
+      ctx.lineWidth = 5;
+      ctx.strokeRect(fx, fy, fw, fh); // the photo's frame
+      ctx.beginPath(); // the sun
+      ctx.arc(fx + 24, fy + 24, 12, 0, Math.PI * 2);
       ctx.stroke();
+      ctx.lineWidth = 6; // two mountains rising from the frame floor
+      wobblyLine(ctx, fx + 2, base, fx + 34, base - 60, 2); ctx.stroke();
+      wobblyLine(ctx, fx + 34, base - 60, fx + 58, base, 2); ctx.stroke();
+      wobblyLine(ctx, fx + 40, base, fx + 64, base - 42, 2); ctx.stroke();
+      wobblyLine(ctx, fx + 64, base - 42, fx + fw - 2, base, 2); ctx.stroke();
+    } else {
+      ctx.strokeStyle = INK_SOFT; // ruled text lines on the page
+      ctx.lineWidth = 4;
+      for (let i = 0; i < 4; i++) {
+        const yy = py + 52 + i * 18;
+        wobblyLine(ctx, px + 16, yy, px + pw - 16, yy, 1.4);
+        ctx.stroke();
+      }
     }
     ctx.fillStyle = INK; // filename below the sheet
     const size = name.length > 10 ? 50 : 58;
