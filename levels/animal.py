@@ -27,4 +27,6 @@ LEVEL = Level(
     budget=12,
     order=2,  # last: reached from the bonus board through the portal
     home=False,
+    music="farm.mp3",  # sweet-country-farm loop, fits the critters
+    music_gain=0.365,  # trim to match Cipher2's loudness (track is ~9 LUFS hotter)
 )
