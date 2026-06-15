@@ -68,8 +68,8 @@ with image.imports():
 @app.cls(
     gpu="l4",  # 24 GB; MiniCPM3-4B in bf16 is ~8 GB — comfortable headroom.
     enable_memory_snapshot=True,  # snapshot the CPU-loaded model to cut cold starts
-    scaledown_window=120,  # idle 2 min, then scale to zero (no cost while nobody plays)
-    min_containers=0,
+    scaledown_window=120,  # only affects burst containers beyond the floor now
+    min_containers=1,  # keep one L4 resident at all times — no cold starts (~$0.80/hr 24/7)
 )
 # Let one warm L4 absorb a small burst of verdicts (sharing its single resident model)
 # before Modal scales out a fresh container — far cheaper than a cold start per overlap,
