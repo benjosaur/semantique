@@ -1,11 +1,13 @@
-"""The animal board — a 5x5 with a central start and four corner exits.
+"""The animal board — the home level: a 4x4 with a blank central start.
 
-No walls: the word tiles only hint at the animals; the puzzle is routing a path
-whose sentence the judge reads as the critter you're hunting.
+The doodle spawns on the blank centre tile (row 2, col 1); hop off to write a
+sentence, then hop onto a "⏎" to send it. Two submit keys (top-right and
+bottom-right) give you a choice of where to lock in.
 
-Three "portal" tiles ring the board — top (0,1), right (2,4), bottom (4,1). Each
-teleports to the next one clockwise (top -> right -> bottom -> top), so a portal
-is a wordless shortcut across the grid (the hop onto it still costs budget).
+One "wings" tile (top-left) is the clean exit: hop on and the doodle sprouts
+wings for three airborne hops (two free glides, then a descent) — soar over the
+keys straight onto a "⏎". No portals here; the word tiles only hint at the
+critter, and the puzzle is routing a path the judge reads as the animal you want.
 """
 
 from levels._base import Level
@@ -14,15 +16,15 @@ LEVEL = Level(
     id="animal",
     title="critters",
     grid=[
-        ["⏎", "portal", "ouch", "cylinder", "⏎"],
-        ["smart", "fur", "loud", "puppy", "?"],
-        ["love", "not", "start", "sea", "portal"],
-        ["small", "hate", "winged", "quiet", "big"],
-        ["⏎", "portal", "frolick", "grass", "⏎"],
+        ["wings", "spicy", "gruff", "⏎"],
+        ["silly", "worst", "love", "chill"],
+        ["huge", "start", "slow", "lump"],
+        ["friend", "not", "grumpy", "⏎"],
     ],
-    start=(2, 2),  # the centre tile
+    start=(2, 1),  # the blank central home tile
     targets=["whale", "otter", "cat", "dog", "bear", "owl", "mouse", "cow"],
     labels=["whale", "otter", "cat", "dog", "bear", "owl", "mouse", "cow"],
     budget=12,
-    order=1,
+    order=0,
+    home=True,
 )
