@@ -2992,12 +2992,15 @@
   let boardW = 7.0, boardH = 7.0;
   function reframe() {
     boardW = (COLS - 1) * SPACING + TILE_SIZE;
-    // The world tile sits one row below the grid (flush). The grid stays centred,
-    // so to keep that one-sided extra row in frame we reserve a row on BOTH sides
-    // of centre — otherwise the tile drops off the bottom. Reserving it also keeps
-    // the height-bound (desktop) board small enough to clear the top chrome. It's
-    // reserved even while the tile is hidden, so the framing never jumps.
-    boardH = (ROWS - 1) * SPACING + TILE_SIZE + swapTiles.length * 2 * SPACING;
+    // The world swap tile sits one row below the grid (flush). The grid stays
+    // centred, so to keep that one-sided extra row in frame we reserve a row on
+    // BOTH sides of centre — otherwise the tile drops off the bottom. Reserving it
+    // also keeps the height-bound (desktop) board small enough to clear the top
+    // chrome. We reserve it on EVERY board, even ones that never grow a swap tile
+    // (the bonus board exits via the portal): otherwise a swap-tile-less board
+    // frames a shorter world, zooms in tighter, and its bigger tiles ride up over
+    // the sentence. A board only ever has one swap tile, so reserve one row flat.
+    boardH = (ROWS - 1) * SPACING + TILE_SIZE + 2 * SPACING;
     resize();
   }
   function resize() {
