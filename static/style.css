@@ -612,8 +612,18 @@
   font-size: 52px;
   font-weight: 700;
   line-height: 1.05;
-  color: var(--accent);
   margin-bottom: 14px;
+  /* an animated rainbow sweeping through the letters (the @keyframes lives in
+     app.py's un-scoped BLOCKS_CSS). Stays a rainbow under the glitch invert. */
+  background: linear-gradient(
+    90deg, #ff004d, #ff8a00, #ffe000, #36d800, #00b3ff, #8b5cf6, #ff004d
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: sq-rainbow 3s linear infinite;
 }
 .sq-victory-body {
   font-family: "Patrick Hand", cursive;

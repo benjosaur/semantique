@@ -72,6 +72,13 @@ html.sq-glitch-page .gradio-container .contain {
   from { background-position: 0 0; }
   to { background-position: 0 120px; }
 }
+/* the victory title's rainbow sweep (the gradient is 200% wide; slide it one
+   full gradient-width for a seamless loop). Lives here, un-scoped, because the
+   component-nested css_template can't host @keyframes. */
+@keyframes sq-rainbow {
+  from { background-position: 0% 50%; }
+  to { background-position: 200% 50%; }
+}
 """
 
 with gr.Blocks(css=BLOCKS_CSS, title="Semantique") as demo:
