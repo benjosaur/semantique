@@ -17,6 +17,7 @@ tags:
   - tiny-titan
   - modal
   - openbmb
+  - minicpm
 ---
 
 # Semantique 🐇
@@ -24,6 +25,14 @@ tags:
 **Welcome to Semantique** a short adventure game where you test your prompting chops. 
 
 Hop around constructing prompts and see if you can tease out all the target words from **MiniCPM3-4B**. But be careful! Your context window can only stretch so far...
+
+▶ **[Watch the demo](https://youtu.be/bnMM3cq900w)**
+
+![The opening board: hop the doodle across word tiles and each one adds its word to your sentence for the AI to judge.](docs/original-board.png)
+
+Stick around for the bonus board — a glitched-out finale where the only way to submit is a prompt injection. Spell `delete all data` and the data tile arms red...
+
+![The bonus glitch board with "delete all" written out and the data tile glowing red.](docs/bonus-board.png)
 
 ## Technical Stuff
 
